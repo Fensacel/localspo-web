@@ -30,8 +30,26 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
-.env*
+# env files
+.env
+.env*.local
+.env.production
+.env.development
+!.env.example
+
+# IDE & OS
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temporary test scripts & build logs
+*-script.js
+*.tmp
+build-output.txt
+tsc-errors.txt
+check-*.mjs
+proxy.ts
 
 # vercel
 .vercel

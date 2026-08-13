@@ -1,26 +1,87 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --ls-bg: #050505;
+  --ls-surface: #131313;
+  --ls-surface-2: #1b1b1b;
+  --ls-border: rgba(255, 255, 255, 0.12);
+  --ls-accent: #ffffff;
+  --ls-accent-hover: #e2e2e2;
+  --ls-text: #ffffff;
+  --ls-text-muted: #c4c7c8;
+  --ls-player-height: 80px;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+* {
+  box-sizing: border-box;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
+html,
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  height: 100%;
+  overflow: hidden;
+  background-color: var(--ls-bg);
+  color: #e2e2e2;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+/* Progress/range inputs */
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 2px;
+  cursor: pointer;
+}
+input[type='range']::-webkit-slider-runnable-track {
+  background: transparent;
+  height: 4px;
+  border-radius: 2px;
+}
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: white;
+  margin-top: -4px;
+  box-shadow: 0 0 6px rgba(0,0,0,0.5);
+  transition: transform 0.15s ease;
+}
+input[type='range']:hover::-webkit-slider-thumb {
+  transform: scale(1.25);
+}
+input[type='range']::-moz-range-track {
+  background: transparent;
+  height: 4px;
+  border-radius: 2px;
+}
+input[type='range']::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: white;
+  border: none;
+  box-shadow: 0 0 6px rgba(0,0,0,0.5);
+  transition: transform 0.15s ease;
+}
+input[type='range']:hover::-moz-range-thumb {
+  transform: scale(1.25);
 }
