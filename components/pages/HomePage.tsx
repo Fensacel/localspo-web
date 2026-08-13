@@ -7,11 +7,11 @@ import { TrackRow } from '@/components/music/TrackRow'
 import { Track } from '@/types/track'
 import { usePlayerStore } from '@/store/playerStore'
 import { useRouter } from 'next/navigation'
-import { Music } from 'lucide-react'
+import { Music, Volume2 } from 'lucide-react'
 
 export function HomePage() {
   const { user } = useAuthStore()
-  const { play } = usePlayerStore()
+  const { play, isPlaying, currentTrack, contextTitle } = usePlayerStore()
   const { playlists: localPlaylists } = usePlaylistStore()
   const router = useRouter()
 
