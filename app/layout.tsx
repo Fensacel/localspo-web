@@ -7,10 +7,15 @@ import { AppShell } from '@/components/layout/AppShell'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'LocalSpo — Music Streaming',
+  title: 'LocalSpo',
   description: 'Stream music, discover artists, and share what you love.',
+  icons: {
+    icon: '/logo.png',
+    shortcut: '/logo.png',
+    apple: '/logo.png',
+  },
   openGraph: {
-    title: 'LocalSpo — Music Streaming',
+    title: 'LocalSpo',
     description: 'Stream music, discover artists, and share what you love.',
     type: 'website',
   },
@@ -19,6 +24,11 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
+      <head>
+        <link rel="icon" href="/logo.png" type="image/png" />
+        <link rel="shortcut icon" href="/logo.png" type="image/png" />
+        <link rel="apple-touch-icon" href="/logo.png" />
+      </head>
       <body className={`${inter.className} bg-black text-white antialiased`} suppressHydrationWarning>
         <Providers>
           <AppShell>{children}</AppShell>

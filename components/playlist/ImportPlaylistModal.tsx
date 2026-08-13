@@ -3,6 +3,10 @@
 import { useState } from 'react'
 import { Disc, Download, Loader2, X } from 'lucide-react'
 import { useRouter } from 'next/navigation'
+import { usePlaylistStore } from '@/store/usePlaylistStore'
+import { useLibraryStore } from '@/store/useLibraryStore'
+import { useFollowedPlaylistStore } from '@/store/useFollowedPlaylistStore'
+import type { StreamSong } from '@/types/streamSong'
 
 interface ImportPlaylistModalProps {
   isOpen: boolean
@@ -17,6 +21,10 @@ export function ImportPlaylistModal({ isOpen, onClose, onSuccess }: ImportPlayli
   const [error, setError] = useState<string | null>(null)
   const router = useRouter()
 
+  const { addImportedPlaylist } = usePlaylistStore()
+  const { addSongs } = useLibraryStore()
+  const { followPlaylist } = useFollowedPlaylistStore()
+
   if (!isOpen) return null
 
   function extractPlaylistId(input: string): string {
@@ -25,7 +33,7 @@ export function ImportPlaylistModal({ isOpen, onClose, onSuccess }: ImportPlayli
       const match = trimmed.match(/playlist\/([a-zA-Z0-9]+)/)
       if (match) return match[1]
     }
-    return trimmed
+    return trimmed.split('?')[0].split('&')[0]
   }
 
   async function handleImport() {
@@ -40,80 +48,93 @@ export function ImportPlaylistModal({ isOpen, onClose, onSuccess }: ImportPlayli
     setStatusText('Mengambil metadata playlist Spotify...')
 
     try {
-      // 1. Fetch Spotify playlist metadata
+      // 1. Fetch Spotify playlist metadata via server-side scraper endpoint
       const res = await fetch(`/api/spotify/playlist?id=${encodeURIComponent(playlistId)}`)
       const json = await res.json()
 
       if (!json.success || !json.data) {
-        throw new Error(json.error?.message || 'Gagal mengambil playlist dari Spotify.')
+        throw new Error(json.error?.message || 'Gagal mengambil data playlist, coba lagi nanti atau pastikan link benar')
       }
 
-      const playlistInfo = json.data.playlist || json.data
-      const rawTracks = json.data.tracks || []
+      const playlistInfo = json.data.playlist
+      const songs: StreamSong[] = json.data.tracks || []
 
-      if (!rawTracks || rawTracks.length === 0) {
+      if (!songs || songs.length === 0) {
         throw new Error('Playlist ini kosong atau tidak memiliki lagu yang dapat diimpor.')
       }
 
-      setStatusText(`Mencocokkan ${rawTracks.length} lagu dengan YT Music...`)
+      setStatusText(`Menyimpan ${songs.length} lagu...`)
 
-      // 2. Match tracks with YT Music
-      const matchRes = await fetch('/api/spotify/match', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tracks: rawTracks }),
-      })
-      const matchJson = await matchRes.json()
+      // 2. Add songs globally to useLibraryStore
+      addSongs(songs)
 
-      if (!matchJson.success) {
-        throw new Error(matchJson.error?.message || 'Gagal mencocokkan lagu Spotify.')
-      }
+      let assignedId = playlistId
 
-      const matchedTracks = matchJson.data || (matchJson.results ? matchJson.results.map((r: any) => r.matchedTrack).filter(Boolean) : [])
-
-      setStatusText('Menyimpan playlist ke LocalSpo...')
-
-      // 3. Create LocalSpo playlist
-      const createRes = await fetch('/api/playlists', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: playlistInfo.name || playlistInfo.title || 'Imported Spotify Playlist',
-          description: playlistInfo.description || `Imported from Spotify playlist ${playlistId}`,
-          type: 'spotify',
-          source: 'spotify',
-          sourcePlaylistId: playlistId,
-          coverUrl: playlistInfo.coverUrl || playlistInfo.images?.[0]?.url,
-        }),
-      })
-      const createJson = await createRes.json()
-
-      if (!createJson.success || !createJson.data) {
-        throw new Error(createJson.error?.message || 'Gagal membuat playlist LocalSpo.')
-      }
-
-      const newPlaylistId = createJson.data.id
-
-      // 4. Add matched tracks to playlist in batch
-      if (matchedTracks.length > 0) {
-        setStatusText(`Menambahkan ${matchedTracks.length} lagu ke playlist...`)
-        const trackRes = await fetch(`/api/playlists/${newPlaylistId}/tracks`, {
+      // 3. Try creating playlist in database and adding tracks if logged in
+      try {
+        const createRes = await fetch('/api/playlists', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tracks: matchedTracks }),
+          body: JSON.stringify({
+            title: playlistInfo.name || 'Imported Playlist',
+            description: playlistInfo.description || `Imported playlist ${playlistId}`,
+            type: 'spotify',
+            source: 'spotify',
+            sourcePlaylistId: playlistId,
+            coverUrl: playlistInfo.coverUrl,
+          }),
         })
-        const trackJson = await trackRes.json()
-        if (!trackJson.success) {
-          console.warn('[ImportPlaylistModal] Partial warning adding tracks:', trackJson.error)
+        const createJson = await createRes.json()
+
+        if (createJson.success && createJson.data?.id) {
+          const dbPlaylistId = createJson.data.id
+          assignedId = dbPlaylistId
+
+          // Sync tracks to database
+          await fetch(`/api/playlists/${dbPlaylistId}/tracks`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              tracks: songs.map((song) => ({
+                id: song.id,
+                title: song.title,
+                artist: song.artist,
+                album: song.album,
+                thumbnail: song.coverUrl,
+                thumbnailUrl: song.coverUrl,
+                duration: Math.round(song.durationMs / 1000),
+              })),
+            }),
+          })
         }
+      } catch (dbErr) {
+        console.warn('[ImportPlaylistModal] Database sync skipped or user guest:', dbErr)
       }
+
+      // 4. Add playlist to usePlaylistStore with matching assigned ID
+      addImportedPlaylist(
+        playlistInfo.name || 'Imported Playlist',
+        playlistInfo.coverUrl || '',
+        songs,
+        assignedId
+      )
+
+      // 5. Register Auto-Follow & Live Sync in useFollowedPlaylistStore
+      followPlaylist(
+        playlistId,
+        assignedId,
+        playlistInfo.name || 'Imported Playlist',
+        playlistInfo.coverUrl || '',
+        songs.length
+      )
 
       setStatusText('Selesai!')
       onSuccess?.()
       onClose()
-      router.push(`/playlist/${newPlaylistId}`)
+      setUrlOrId('')
+      router.push('/library')
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Terjadi kesalahan saat mengimpor.'
+      const msg = err instanceof Error ? err.message : 'Gagal mengambil data playlist, coba lagi nanti atau pastikan link benar'
       setError(msg)
     } finally {
       setLoading(false)
@@ -132,12 +153,11 @@ export function ImportPlaylistModal({ isOpen, onClose, onSuccess }: ImportPlayli
         </button>
 
         <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-xl bg-green-500/20 text-green-400 flex items-center justify-center shrink-0">
+          <div className="w-10 h-10 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center shrink-0">
             <Download size={20} />
           </div>
           <div>
-            <h3 className="text-lg font-bold text-white tracking-tight">Import Playlist Spotify</h3>
-            <p className="text-xs text-gray-400">Masukkan URL atau ID playlist Spotify publik</p>
+            <h3 className="text-lg font-bold text-white tracking-tight">Import Playlist</h3>
           </div>
         </div>
 
@@ -156,14 +176,14 @@ export function ImportPlaylistModal({ isOpen, onClose, onSuccess }: ImportPlayli
               type="text"
               value={urlOrId}
               onChange={(e) => setUrlOrId(e.target.value)}
-              placeholder="https://open.spotify.com/playlist/37i9dQZF1DXcBWAOFi2xC6"
+              placeholder="https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M"
               disabled={loading}
-              className="w-full bg-white/5 border border-white/10 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-green-500 transition-all"
+              className="w-full bg-white/5 border border-white/10 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-all"
             />
           </div>
 
           {loading && (
-            <div className="flex items-center gap-2 text-xs text-green-400 animate-pulse bg-green-500/10 p-3 rounded-xl">
+            <div className="flex items-center gap-2 text-xs text-blue-400 animate-pulse bg-blue-500/10 p-3 rounded-xl">
               <Loader2 size={16} className="animate-spin" />
               <span>{statusText}</span>
             </div>
@@ -180,7 +200,7 @@ export function ImportPlaylistModal({ isOpen, onClose, onSuccess }: ImportPlayli
             <button
               onClick={handleImport}
               disabled={loading || !urlOrId.trim()}
-              className="flex items-center gap-2 px-5 py-2 text-xs font-bold bg-green-500 hover:bg-green-400 text-black rounded-xl disabled:opacity-50 transition-all shadow-lg shadow-green-500/20"
+              className="flex items-center gap-2 px-5 py-2 text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-xl disabled:opacity-50 transition-all shadow-lg shadow-blue-600/20"
             >
               {loading ? (
                 <>

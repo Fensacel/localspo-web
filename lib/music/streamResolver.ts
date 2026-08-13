@@ -21,9 +21,9 @@ export interface StreamInfo {
   expiresAt?: number
 }
 
-// In-memory cache with TTL (stream URLs are temporary)
+// In-memory cache with TTL (YouTube stream URLs are valid for up to 6 hours)
 const streamCache = new Map<string, { info: StreamInfo; cachedAt: number }>()
-const CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutes
+const CACHE_TTL_MS = 4 * 60 * 60 * 1000 // 4 hours
 
 function getCached(videoId: string): StreamInfo | null {
   const entry = streamCache.get(videoId)

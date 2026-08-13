@@ -15,16 +15,58 @@ export interface MatchResult {
   score: number
 }
 
+const LANGUAGE_VERSION_KEYWORDS = [
+  'japanese',
+  'japan',
+  'jpn',
+  'korean',
+  'kor',
+  'chinese',
+  'mandarin',
+  'english',
+  'eng',
+  'spanish',
+]
+
+const VERSION_KEYWORDS = [
+  'remix',
+  'live',
+  'concert',
+  'acoustic',
+  'instrumental',
+  'inst',
+  'karaoke',
+  'cover',
+  'speed up',
+  'sped up',
+  'slowed',
+  'reverb',
+  'nightcore',
+  'demo',
+  '8d',
+  'edit',
+  '10 minute',
+  'ten minute',
+  'extended',
+  'orchestral',
+  'taylor\'s version',
+  ...LANGUAGE_VERSION_KEYWORDS,
+]
+
 /**
- * Normalizes title/artist string by removing common noise words and special characters
+ * Normalizes title/artist string by removing common video/audio noise while PRESERVING version identifiers (Japanese, 10 Minute, Remix, etc.)
  */
 export function normalizeString(str: string): string {
   if (!str) return ''
   return str
     .toLowerCase()
-    .replace(/[\(\[\{].*?[\)\]\}]/g, '') // remove brackets e.g. (Official Video), [Remastered]
-    .replace(/\b(feat|ft|featuring|remaster|remastered|official|video|audio|version|deluxe|edit|mix)\b/gi, '')
-    .replace(/[^\w\s]/gi, '') // remove punctuation
+    // Remove non-version tags like (Official Music Video), [Official Audio], (MV), [HD]
+    .replace(/[\(\[\{]\s*(?:official\s+)?(?:music\s+)?(?:video|audio|mv|visualizer|lyric\s+video|lyrics|hd|4k|remastered?|deluxe)\s*[\)\]\}]/gi, '')
+    // Remove feat/ft tags like (feat. Artist)
+    .replace(/[\(\[\{]\s*(?:feat|ft|featuring)\.?\s+[^\)\]\}]+[\)\]\}]/gi, '')
+    .replace(/\b(?:feat|ft|featuring)\.?\s+[^\s]+/gi, '')
+    // Unicode punctuation removal
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim()
 }
@@ -36,10 +78,14 @@ export function stringSimilarity(a: string, b: string): number {
   const normA = normalizeString(a)
   const normB = normalizeString(b)
 
-  if (normA === normB) return 1.0
+  if (normA === normB && normA.length > 0) return 1.0
   if (!normA || !normB) return 0.0
 
-  if (normA.includes(normB) || normB.includes(normA)) return 0.85
+  if (normA.includes(normB) || normB.includes(normA)) {
+    const minLen = Math.min(normA.length, normB.length)
+    const maxLen = Math.max(normA.length, normB.length)
+    return Math.max(0.75, minLen / maxLen)
+  }
 
   const getBigrams = (s: string) => {
     const bigrams = new Set<string>()
@@ -67,26 +113,65 @@ export function stringSimilarity(a: string, b: string): number {
 export function scoreTrackMatch(
   spotify: SpotifyTrackInput,
   ytTrack: Track,
-  threshold = 0.65
+  threshold = 0.45
 ): { isMatch: boolean; score: number } {
   const titleScore = stringSimilarity(spotify.title, ytTrack.title)
 
-  const ytArtistName = ytTrack.artist?.name ?? ''
+  const ytArtistName = typeof ytTrack.artist === 'string' ? ytTrack.artist : ytTrack.artist?.name ?? ''
   const artistScore = stringSimilarity(spotify.artist, ytArtistName)
 
   let durationBonus = 0
+  let durationPenalty = 0
   if (spotify.durationMs && ytTrack.duration) {
     const ytDurationMs = ytTrack.duration * 1000
     const diffMs = Math.abs(spotify.durationMs - ytDurationMs)
     if (diffMs <= 3000) {
-      durationBonus = 0.15
+      durationBonus = 0.20
     } else if (diffMs <= 6000) {
-      durationBonus = 0.08
+      durationBonus = 0.10
+    } else if (diffMs > 25000) {
+      durationPenalty = 0.50 // Heavy penalty if length differs by >25s
+    } else if (diffMs > 12000) {
+      durationPenalty = 0.30
     }
   }
 
-  // Composite score: 55% title, 35% artist + duration bonus
-  const totalScore = Math.min(1.0, titleScore * 0.55 + artistScore * 0.35 + durationBonus)
+  // Version mismatch penalty (e.g. candidate is Japanese/Remix/Live when Spotify track is not, or vice-versa)
+  const spotifyTitleLower = spotify.title.toLowerCase()
+  const ytTitleLower = ytTrack.title.toLowerCase()
+  let versionPenalty = 0
+  let versionBonus = 0
+
+  for (const kw of VERSION_KEYWORDS) {
+    const targetHas = spotifyTitleLower.includes(kw)
+    const ytHas = ytTitleLower.includes(kw)
+
+    if (targetHas && ytHas) {
+      versionBonus += 0.25 // Both have version keyword
+    } else if (targetHas && !ytHas) {
+      versionPenalty += 0.55 // Target wanted version (e.g. Japanese Ver. / 10 Minute), but candidate is standard
+    } else if (!targetHas && ytHas) {
+      versionPenalty += 0.45 // Target is standard, candidate is version/remix/live
+    }
+  }
+
+  // Bonus for exact normalized title match
+  let exactTitleBonus = 0
+  if (normalizeString(spotify.title) === normalizeString(ytTrack.title)) {
+    exactTitleBonus = 0.20
+  }
+
+  // Composite score calculation
+  const rawScore =
+    titleScore * 0.45 +
+    artistScore * 0.25 +
+    durationBonus +
+    exactTitleBonus +
+    versionBonus -
+    versionPenalty -
+    durationPenalty
+
+  const totalScore = Math.max(0, Math.min(1.0, rawScore))
 
   return {
     isMatch: totalScore >= threshold,

@@ -212,7 +212,7 @@ export function TrackContextMenu({ track, position, onClose }: TrackContextMenuP
                         className="w-full px-3 py-2 text-left hover:bg-white/10 flex items-center justify-between truncate"
                       >
                         <span className="truncate">{pl.title}</span>
-                        {isAdded && <Check size={14} className="text-green-400 shrink-0 ml-1" />}
+                        {isAdded && <Check size={14} className="text-blue-400 shrink-0 ml-1" />}
                       </button>
                     )
                   })

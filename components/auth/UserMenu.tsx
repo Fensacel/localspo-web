@@ -10,13 +10,16 @@ import {
   BarChart2,
   MessageSquare,
   ChevronDown,
+  Download,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useAuthStore } from '@/store/authStore'
+import { ImportPlaylistModal } from '@/components/playlist/ImportPlaylistModal'
 
 export function UserMenu() {
   const { user, profile } = useAuthStore()
   const [open, setOpen] = useState(false)
+  const [importModalOpen, setImportModalOpen] = useState(false)
   const router = useRouter()
 
   async function handleLogin() {
@@ -38,13 +41,26 @@ export function UserMenu() {
 
   if (!user) {
     return (
-      <button
-        onClick={handleLogin}
-        className="flex items-center gap-2 px-4 py-2 bg-white text-black hover:bg-gray-200 rounded-full text-xs font-bold transition-all shadow-md"
-      >
-        <LogIn size={15} />
-        Sign in
-      </button>
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => setImportModalOpen(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/30 rounded-full text-xs font-semibold transition-all"
+        >
+          <Download size={14} />
+          Import Playlist
+        </button>
+        <button
+          onClick={handleLogin}
+          className="flex items-center gap-2 px-4 py-2 bg-white text-black hover:bg-gray-200 rounded-full text-xs font-bold transition-all shadow-md"
+        >
+          <LogIn size={15} />
+          Sign in
+        </button>
+        <ImportPlaylistModal
+          isOpen={importModalOpen}
+          onClose={() => setImportModalOpen(false)}
+        />
+      </div>
     )
   }
 
@@ -123,6 +139,16 @@ export function UserMenu() {
               <MessageSquare size={16} className="text-gray-400" />
               Chat
             </button>
+            <button
+              onClick={() => {
+                setImportModalOpen(true)
+                setOpen(false)
+              }}
+              className="flex items-center gap-3 w-full px-4 py-2.5 text-xs font-medium text-blue-400 hover:bg-blue-500/10 hover:text-blue-300 transition-colors"
+            >
+              <Download size={16} className="text-blue-400" />
+              Import Playlist
+            </button>
             <div className="border-t border-white/10 my-1.5" />
             <button
               onClick={handleLogout}
@@ -134,6 +160,11 @@ export function UserMenu() {
           </div>
         </>
       )}
+
+      <ImportPlaylistModal
+        isOpen={importModalOpen}
+        onClose={() => setImportModalOpen(false)}
+      />
     </div>
   )
 }

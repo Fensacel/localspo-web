@@ -1,6 +1,6 @@
 'use client'
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { useAuthStore } from '@/store/authStore'
 import { usePlayerStore } from '@/store/playerStore'
 import { TrackRow } from '@/components/music/TrackRow'
@@ -9,7 +9,7 @@ import { Track } from '@/types/track'
 
 export function LikedPage() {
   const { user, initialized } = useAuthStore()
-  const { play, toggleShuffle } = usePlayerStore()
+  const { play, shuffle, toggleShuffle } = usePlayerStore()
 
   const { data: tracks, isLoading } = useQuery<Track[]>({
     queryKey: ['liked'],
@@ -48,19 +48,21 @@ export function LikedPage() {
   const list = tracks ?? []
 
   function handlePlay(track: Track, i: number) {
-    play(track, list.slice(i))
+    play(track, list, i, 'Lagu yang Disukai')
   }
 
   function handleShuffle() {
-    if (list.length > 0) {
-      const shuffled = [...list].sort(() => Math.random() - 0.5)
-      toggleShuffle()
-      play(shuffled[0], shuffled)
+    toggleShuffle()
+    const state = usePlayerStore.getState()
+    const isThisListPlaying = state.queue.length > 0 && list.some((t) => t.id === state.currentTrack?.id)
+    if (!isThisListPlaying && list.length > 0) {
+      const randomIndex = Math.floor(Math.random() * list.length)
+      play(list[randomIndex], list, randomIndex, 'Lagu yang Disukai')
     }
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-6">
+    <div className="flex-1 overflow-y-auto p-6 pb-28">
       <div className="max-w-4xl mx-auto">
         <div className="flex items-center gap-6 mb-6">
           <div className="w-40 h-40 rounded-2xl bg-gradient-to-br from-blue-600 to-purple-700 flex items-center justify-center text-6xl shadow-xl">
@@ -83,9 +85,14 @@ export function LikedPage() {
             </button>
             <button
               onClick={handleShuffle}
-              className="flex items-center gap-2 px-6 py-2 bg-white/10 hover:bg-white/20 rounded-full font-medium transition-colors"
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-semibold transition-all ${
+                shuffle
+                  ? 'bg-white/10 hover:bg-white/20 border border-white/20 text-white shadow-sm'
+                  : 'bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 hover:text-white'
+              }`}
             >
-              <Shuffle size={16} /> Shuffle
+              <Shuffle size={14} className={shuffle ? 'text-white' : 'text-gray-400'} />
+              <span>Shuffle</span>
             </button>
           </div>
         )}

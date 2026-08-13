@@ -57,7 +57,7 @@ export function ArtistPage({ id }: ArtistPageProps) {
   function handlePlay(track?: Track, i = 0) {
     if (!songs.length) return
     const targetTrack = track ?? songs[0]
-    play(targetTrack, songs.slice(i))
+    play(targetTrack, songs, i, `${artist.name} - Populer`)
   }
 
   return (

@@ -14,10 +14,20 @@ interface LrclibResponse {
   syncedLyrics?: string
 }
 
-function cleanTitle(title: string): string {
+/**
+ * Strips feat/ft/featuring but preserves version qualifiers like (10 Minute Version), (Remix), etc.
+ */
+function cleanFeatOnly(title: string): string {
   return title
-    .replace(/ft\..*|feat\..*/i, '')
-    .replace(/\(.*?\)|\[.*?\]/g, '')
+    .replace(/\s*[\(\[](?:feat|ft|featuring)\.?\s+[^\)\]]+[\)\]]/gi, '')
+    .replace(/\s+feat\.?\s+.*/i, '')
+    .trim()
+}
+
+function cleanExtraTags(title: string): string {
+  return title
+    .replace(/[\(\[\{]\s*(?:official\s+)?(?:music\s+)?(?:video|audio|mv|visualizer|lyric\s+video|lyrics|hd|4k|remastered?|deluxe)\s*[\)\]\}]/gi, '')
+    .replace(/\s*[\(\[](?:feat|ft|featuring)\.?\s+[^\)\]]+[\)\]]/gi, '')
     .trim()
 }
 
@@ -28,37 +38,82 @@ function isRomanizedText(str?: string): boolean {
 
 function hasNativeScript(text?: string): boolean {
   if (!text) return false
-  // Check for Hangul, Kana, Kanji, Cyrillic, Thai, etc.
   return /[\uac00-\ud7a3\u3040-\u30ff\u4e00-\u9faf\u0400-\u04ff\u0e00-\u0e7f]/.test(text)
 }
 
-function scoreLrclibItem(item: LrclibResponse): number {
-  if (!item) return -100
+const VERSION_TAGS = [
+  '10 minute',
+  'ten minute',
+  '10-minute',
+  'remix',
+  'live',
+  'acoustic',
+  'taylor\'s version',
+  'extended',
+  'sped up',
+  'slowed',
+  'instrumental',
+  'orchestral',
+  'version',
+]
+
+function scoreLrclibItem(
+  item: LrclibResponse,
+  target: { track: string; artist: string; duration?: number }
+): number {
+  if (!item) return -1000
   let score = 0
-  const trackName = item.trackName || ''
-  const albumName = item.albumName || ''
+
+  const trackName = (item.trackName || '').toLowerCase()
+  const albumName = (item.albumName || '').toLowerCase()
+  const targetTrack = target.track.toLowerCase()
   const synced = item.syncedLyrics || ''
   const plain = item.plainLyrics || ''
   const lyricsText = synced + '\n' + plain
 
-  // Penalize romanized titles/albums
+  // 1. Synced Lyrics absolute priority (+300)
+  if (synced && parseLRC(synced).length > 0) {
+    score += 300
+  } else if (plain) {
+    score += 20
+  } else {
+    return -1000
+  }
+
+  // 2. Duration Matching
+  if (target.duration && item.duration) {
+    const diff = Math.abs(item.duration - target.duration)
+    if (diff <= 2) {
+      score += 200 // Exact duration match
+    } else if (diff <= 5) {
+      score += 100
+    } else if (diff <= 10) {
+      score += 30
+    } else if (diff > 25) {
+      score -= 400 // Heavy penalty for wrong version length
+    }
+  }
+
+  // 3. Version Keywords Matching
+  for (const tag of VERSION_TAGS) {
+    const targetHasTag = targetTrack.includes(tag)
+    const itemHasTag = trackName.includes(tag)
+
+    if (targetHasTag && itemHasTag) {
+      score += 120
+    } else if (targetHasTag && !itemHasTag) {
+      score -= 250 // Target wanted version (e.g. 10 minute), but candidate is standard
+    } else if (!targetHasTag && itemHasTag) {
+      score -= 150 // Target is standard, candidate is remix/live
+    }
+  }
+
+  // 4. Romanized vs Native Language Script
   if (isRomanizedText(trackName) || isRomanizedText(albumName)) {
     score -= 100
   }
-
-  // Heavily reward native scripts (e.g. Hangul for K-Pop)
   if (hasNativeScript(lyricsText)) {
-    score += 80
-  }
-
-  // Reward synced lyrics
-  if (synced && parseLRC(synced).length > 0) {
-    score += 30
-  }
-
-  // Reward non-empty plain lyrics
-  if (plain) {
-    score += 10
+    score += 60
   }
 
   return score
@@ -71,32 +126,66 @@ export async function fetchLyrics(params: {
   duration?: number
 }): Promise<Lyrics | null> {
   try {
-    const cleanedTrack = cleanTitle(params.track) || params.track
+    const originalTrack = params.track.trim()
+    const cleanTrack = cleanExtraTags(originalTrack)
+    const cleanFeatTrack = cleanFeatOnly(originalTrack)
 
-    // Always try search first if we want to rank non-romanized over romanized
-    const searchResult = await searchLyrics({ ...params, track: cleanedTrack })
-    if (searchResult) return searchResult
+    let plainFallback: Lyrics | null = null
 
-    // Direct /get fallback
-    const sp = new URLSearchParams({
-      artist_name: params.artist,
-      track_name: cleanedTrack,
-    })
-    if (params.album) sp.set('album_name', params.album)
-    if (params.duration) sp.set('duration', String(Math.round(params.duration)))
+    // Strategy 1: Direct /get with exact parameters
+    if (params.duration) {
+      try {
+        const sp = new URLSearchParams({
+          artist_name: params.artist,
+          track_name: cleanTrack || cleanFeatTrack,
+          duration: String(Math.round(params.duration)),
+        })
+        if (params.album) sp.set('album_name', params.album)
 
-    const res = await fetch(`${BASE_URL}/get?${sp.toString()}`, {
-      next: { revalidate: 3600 },
-    })
-
-    if (res.ok) {
-      const data: LrclibResponse = await res.json()
-      const normalized = normalizeLrclibResponse(data)
-      if (normalized) return normalized
+        const res = await fetch(`${BASE_URL}/get?${sp.toString()}`, {
+          next: { revalidate: 3600 },
+        })
+        if (res.ok) {
+          const data: LrclibResponse = await res.json()
+          if (data?.syncedLyrics) {
+            const normalized = normalizeLrclibResponse(data)
+            if (normalized?.synced) return normalized
+          } else if (data?.plainLyrics) {
+            plainFallback = normalizeLrclibResponse(data)
+          }
+        }
+      } catch (err) {
+        console.warn('LRCLIB direct /get failed:', err)
+      }
     }
 
+    // Strategy 2: Search with clean track & find synced lyrics
+    const searchResult = await searchLyrics({
+      artist: params.artist,
+      track: cleanTrack || originalTrack,
+      album: params.album,
+      duration: params.duration,
+    })
+    if (searchResult?.synced) return searchResult
+
+    // Strategy 3: Search with original track (keeps version tags like 10 Minute Version)
+    if (cleanTrack !== originalTrack) {
+      const origSearchResult = await searchLyrics({
+        artist: params.artist,
+        track: originalTrack,
+        album: params.album,
+        duration: params.duration,
+      })
+      if (origSearchResult?.synced) return origSearchResult
+      if (origSearchResult && !searchResult) return origSearchResult
+    }
+
+    if (searchResult) return searchResult
+    if (plainFallback) return plainFallback
+
     return null
-  } catch {
+  } catch (err) {
+    console.error('[fetchLyrics error]:', err)
     return null
   }
 }
@@ -105,6 +194,7 @@ async function searchLyrics(params: {
   artist: string
   track: string
   album?: string
+  duration?: number
 }): Promise<Lyrics | null> {
   try {
     const sp = new URLSearchParams({
@@ -116,12 +206,21 @@ async function searchLyrics(params: {
     if (!res.ok) return null
 
     const results: LrclibResponse[] = await res.json()
-    if (!results.length) return null
+    if (!results || !results.length) return null
 
-    // Sort results by score (prefer native script and non-romanized)
-    const sorted = [...results].sort((a, b) => scoreLrclibItem(b) - scoreLrclibItem(a))
+    // Sort results by score (syncedLyrics has high +300 bonus and duration matching)
+    const scored = results
+      .map((item) => ({
+        item,
+        score: scoreLrclibItem(item, {
+          track: params.track,
+          artist: params.artist,
+          duration: params.duration,
+        }),
+      }))
+      .sort((a, b) => b.score - a.score)
 
-    for (const item of sorted) {
+    for (const { item } of scored) {
       const normalized = normalizeLrclibResponse(item)
       if (normalized) return normalized
     }
@@ -141,19 +240,15 @@ function normalizeLrclibResponse(data: LrclibResponse): Lyrics | null {
       return {
         synced: true,
         lines,
-        plain: data.plainLyrics,
+        plain: data.plainLyrics || data.syncedLyrics,
       }
     }
   }
 
   if (data.plainLyrics) {
-    const lines = data.plainLyrics
-      .split('\n')
-      .map((text, i) => ({ time: i * 3, text: text.trim() }))
-      .filter((l) => l.text)
     return {
       synced: false,
-      lines,
+      lines: [], // No fake timestamps!
       plain: data.plainLyrics,
     }
   }

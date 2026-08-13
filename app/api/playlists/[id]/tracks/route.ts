@@ -48,8 +48,8 @@ export async function POST(
       title: track.title || 'Untitled',
       artist: artistName,
       album: albumName,
-      thumbnail_url: track.thumbnail ?? track.thumbnailUrl ?? null,
-      duration: track.duration || 0,
+      thumbnail_url: track.thumbnail ?? track.thumbnailUrl ?? track.coverUrl ?? null,
+      duration: track.duration || Math.round((track.durationMs || 0) / 1000),
       metadata_json: track,
     }
   })

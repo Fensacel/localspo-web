@@ -80,13 +80,13 @@ export function BottomPlayer() {
               alt={currentTrack.title}
               width={48}
               height={48}
-              className="w-10 h-10 sm:w-12 sm:h-12 rounded-full object-cover shadow-lg border border-white/10 transition-transform group-hover:scale-105"
+              className="w-10 h-10 sm:w-12 sm:h-12 rounded-lg object-cover shadow-lg border border-white/10 transition-transform group-hover:scale-105"
               onError={(e: React.SyntheticEvent<HTMLImageElement>) => {
                 e.currentTarget.style.display = 'none'
               }}
             />
           ) : (
-            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-white/10 border border-white/10 flex items-center justify-center shrink-0">
+            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-lg bg-white/10 border border-white/10 flex items-center justify-center shrink-0">
               <span className="text-white/60 text-xs font-bold">♪</span>
             </div>
           )}

@@ -16,7 +16,26 @@ export async function GET(
 
   if (error || !data) return NextResponse.json({ success: false, error: { code: 'NOT_FOUND' } }, { status: 404 })
 
-  return NextResponse.json({ success: true, data })
+  const tracks = (data.playlist_tracks || []).map((pt: any) => ({
+    id: pt.track_id,
+    videoId: pt.video_id,
+    title: pt.title,
+    artist: { name: pt.artist },
+    album: pt.album ? { name: pt.album } : undefined,
+    thumbnail: pt.thumbnail_url,
+    thumbnailUrl: pt.thumbnail_url,
+    duration: pt.duration,
+    source: 'spotify',
+  }))
+
+  return NextResponse.json({
+    success: true,
+    data: {
+      ...data,
+      coverUrl: data.cover_url,
+      tracks,
+    },
+  })
 }
 
 export async function PUT(

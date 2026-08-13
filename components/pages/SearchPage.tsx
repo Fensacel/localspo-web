@@ -52,7 +52,7 @@ export function SearchPage() {
   function handlePlaySong(track: Track) {
     const songs = data?.songs ?? []
     const idx = songs.findIndex((t) => t.id === track.id)
-    play(track, idx >= 0 ? songs.slice(idx) : [track])
+    play(track, songs, idx >= 0 ? idx : 0)
   }
 
   if (!q) {

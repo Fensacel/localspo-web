@@ -76,7 +76,7 @@ export async function GET(
 
     const responseHeaders: HeadersInit = {
       'Content-Type': contentType,
-      'Cache-Control': 'no-store',
+      'Cache-Control': 'public, max-age=14400, stale-while-revalidate=86400',
       'Access-Control-Allow-Origin': '*',
     }
     if (contentLength) responseHeaders['Content-Length'] = contentLength

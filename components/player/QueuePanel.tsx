@@ -1,35 +1,175 @@
 'use client'
 
 import { usePlayerStore } from '@/store/playerStore'
-import { TrackRow } from '@/components/music/TrackRow'
-import { Trash2, X } from 'lucide-react'
+import { usePlaylistStore } from '@/store/usePlaylistStore'
+import { Play, MoreHorizontal, X, Trash2 } from 'lucide-react'
 import { useUIStore } from '@/store/uiStore'
+import { useState } from 'react'
+import type { Track } from '@/types/track'
+import { TrackContextMenu } from '@/components/music/TrackContextMenu'
+
+function QueueItem({
+  track,
+  isActive = false,
+  onPlay,
+  onRemove,
+}: {
+  track: Track
+  isActive?: boolean
+  onPlay: () => void
+  onRemove?: () => void
+}) {
+  const [imgError, setImgError] = useState(false)
+  const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null)
+  const thumb = track.thumbnail ?? track.thumbnailUrl
+
+  return (
+    <>
+      <div
+        onClick={onPlay}
+        onContextMenu={(e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          setMenuPos({ x: e.clientX, y: e.clientY })
+        }}
+        className={`group flex items-center gap-3 p-2 rounded-lg hover:bg-white/10 transition-colors cursor-pointer ${
+          isActive ? 'bg-white/5' : ''
+        }`}
+      >
+        {/* Album Artwork with Play Overlay */}
+        <div className="relative w-11 h-11 shrink-0 rounded-md overflow-hidden bg-[#242424]">
+          {thumb && !imgError ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={thumb}
+              alt={track.title}
+              className="w-full h-full object-cover"
+              onError={() => setImgError(true)}
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-xs text-gray-500">
+              ♪
+            </div>
+          )}
+
+          <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+            <Play size={16} fill="white" className="text-white ml-0.5" />
+          </div>
+        </div>
+
+        {/* Track Title & Artist */}
+        <div className="flex-1 min-w-0">
+          <p
+            className={`text-sm font-semibold truncate ${
+              isActive ? 'text-blue-400 font-bold' : 'text-white'
+            }`}
+          >
+            {track.title}
+          </p>
+          <p className="text-xs text-[#a7a7a7] truncate mt-0.5">
+            {track.artist?.name || 'Unknown Artist'}
+          </p>
+        </div>
+
+        {/* Options Button */}
+        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              const rect = e.currentTarget.getBoundingClientRect()
+              setMenuPos({ x: rect.left, y: rect.bottom + 4 })
+            }}
+            className="p-1 text-gray-400 hover:text-white hover:bg-white/10 rounded-full transition-colors"
+            title="Pilihan lainnya"
+          >
+            <MoreHorizontal size={16} />
+          </button>
+          {onRemove && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                onRemove()
+              }}
+              className="p-1 text-gray-400 hover:text-red-400 hover:bg-white/10 rounded-full transition-colors"
+              title="Hapus dari antrean"
+            >
+              <X size={15} />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {menuPos && (
+        <TrackContextMenu
+          track={track}
+          position={menuPos}
+          onClose={() => setMenuPos(null)}
+        />
+      )}
+    </>
+  )
+}
 
 export function QueuePanel() {
-  const { currentTrack, queue, currentIndex, removeFromQueue, clearQueue, play } = usePlayerStore()
+  const {
+    currentTrack,
+    queue,
+    userQueue,
+    contextTitle,
+    currentIndex,
+    removeFromQueue,
+    removeFromUserQueue,
+    clearUserQueue,
+    clearQueue,
+    play,
+  } = usePlayerStore()
+  const { playlists: localPlaylists } = usePlaylistStore()
   const { setQueueOpen } = useUIStore()
 
   const upcomingTracks = queue.slice(currentIndex + 1)
-  const previousTracks = queue.slice(0, currentIndex)
+
+  // Determine the display context name
+  let displayContextName = ''
+  if (contextTitle && contextTitle.toLowerCase() !== 'playlist') {
+    displayContextName = contextTitle
+  } else {
+    const matchedPlaylist = localPlaylists.find(
+      (pl) =>
+        (currentTrack &&
+          pl.songs.some(
+            (s) => s.id === currentTrack.id || s.title === currentTrack.title
+          )) ||
+        (queue.length > 0 &&
+          pl.songs.some((s) => queue.some((q) => q.id === s.id || q.title === s.title)))
+    )
+    if (matchedPlaylist) {
+      displayContextName = matchedPlaylist.name
+    } else if (currentTrack?.album?.name) {
+      displayContextName = currentTrack.album.name
+    } else {
+      displayContextName = 'playlist'
+    }
+  }
 
   return (
-    <div className="h-full flex flex-col bg-[#121212] border-l border-[#282828] w-80 shrink-0 z-20 overflow-hidden">
+    <div className="h-full flex flex-col bg-[#121212] border-l border-[#282828] w-80 shrink-0 z-20 overflow-hidden font-sans">
       {/* Header */}
       <div className="p-4 border-b border-[#282828] flex items-center justify-between">
-        <h2 className="text-base font-bold text-white">Play Queue</h2>
+        <h2 className="text-base font-bold text-white tracking-tight">Antrean</h2>
         <div className="flex items-center gap-2">
-          {queue.length > 0 && (
+          {(queue.length > 0 || userQueue.length > 0) && (
             <button
               onClick={clearQueue}
               className="text-xs text-gray-400 hover:text-red-400 transition-colors flex items-center gap-1"
-              title="Clear queue"
+              title="Hapus semua antrean"
             >
-              <Trash2 size={14} /> Clear
+              <Trash2 size={14} /> Hapus
             </button>
           )}
           <button
             onClick={() => setQueueOpen(false)}
-            className="text-gray-400 hover:text-white p-1 rounded-full hover:bg-[#282828]"
+            className="text-gray-400 hover:text-white p-1 rounded-full hover:bg-[#282828] transition-colors"
+            aria-label="Tutup antrean"
           >
             <X size={18} />
           </button>
@@ -37,71 +177,88 @@ export function QueuePanel() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-6">
-        {/* Now Playing */}
-        <div>
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">
-            Now Playing
+      <div className="flex-1 overflow-y-auto p-4 pb-32 space-y-6">
+        {/* 1. Sekarang Memutar */}
+        <section className="space-y-2">
+          <h3 className="text-sm font-bold text-white tracking-tight">
+            Sekarang memutar
           </h3>
           {currentTrack ? (
-            <TrackRow track={currentTrack} hideDuration />
+            <QueueItem
+              track={currentTrack}
+              isActive={true}
+              onPlay={() => play(currentTrack, queue, currentIndex, displayContextName)}
+            />
           ) : (
-            <p className="text-sm text-gray-500 italic">No track playing</p>
+            <p className="text-xs text-gray-500 italic px-2">Tidak ada lagu yang sedang diputar</p>
           )}
-        </div>
+        </section>
 
-        {/* Next Up */}
-        <div>
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">
-            Next Up ({upcomingTracks.length})
-          </h3>
-          {upcomingTracks.length > 0 ? (
+        {/* 2. Berikutnya dalam antrean (Manual Queue) */}
+        {userQueue.length > 0 && (
+          <section className="space-y-2">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-white tracking-tight">
+                Berikutnya dalam antrean
+              </h3>
+              <button
+                onClick={clearUserQueue}
+                className="text-xs font-semibold text-gray-400 hover:text-white transition-colors"
+              >
+                Hapus antrean
+              </button>
+            </div>
+
+            <div className="space-y-1">
+              {userQueue.map((track, i) => (
+                <QueueItem
+                  key={`user-${track.id}-${i}`}
+                  track={track}
+                  onPlay={() => {
+                    usePlayerStore.setState((s) => ({
+                      currentTrack: track,
+                      userQueue: s.userQueue.filter((_, idx) => idx !== i),
+                      isPlaying: true,
+                      currentTime: 0,
+                      duration: 0,
+                      seekTo: null,
+                    }))
+                  }}
+                  onRemove={() => removeFromUserQueue(i)}
+                />
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* 3. Berikutnya dari: [Nama Playlist] */}
+        {upcomingTracks.length > 0 && (
+          <section className="space-y-2">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-white tracking-tight truncate">
+                Berikutnya dari: {displayContextName}
+              </h3>
+            </div>
+
             <div className="space-y-1">
               {upcomingTracks.map((track, i) => {
                 const actualIndex = currentIndex + 1 + i
                 return (
-                  <div key={`${track.id}-${i}`} className="group relative flex items-center">
-                    <div className="flex-1 min-w-0">
-                      <TrackRow
-                        track={track}
-                        index={i + 1}
-                        onPlay={() => play(track, queue)}
-                        hideDuration
-                      />
-                    </div>
-                    <button
-                      onClick={() => removeFromQueue(actualIndex)}
-                      className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-red-400 transition-opacity ml-1"
-                      title="Remove from queue"
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
+                  <QueueItem
+                    key={`playlist-${track.id}-${i}`}
+                    track={track}
+                    onPlay={() => play(track, queue, actualIndex, displayContextName)}
+                    onRemove={() => removeFromQueue(actualIndex)}
+                  />
                 )
               })}
             </div>
-          ) : (
-            <p className="text-sm text-gray-500 italic">Queue is empty</p>
-          )}
-        </div>
+          </section>
+        )}
 
-        {/* Previously Played */}
-        {previousTracks.length > 0 && (
-          <div>
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">
-              Previously Played ({previousTracks.length})
-            </h3>
-            <div className="space-y-1 opacity-60 hover:opacity-100 transition-opacity">
-              {previousTracks.map((track, i) => (
-                <TrackRow
-                  key={`prev-${track.id}-${i}`}
-                  track={track}
-                  index={i + 1}
-                  onPlay={() => play(track, queue)}
-                  hideDuration
-                />
-              ))}
-            </div>
+        {upcomingTracks.length === 0 && userQueue.length === 0 && currentTrack && (
+          <div className="text-xs text-gray-500 italic px-2 py-4">
+            Tidak ada lagu berikutnya di antrean
           </div>
         )}
       </div>
