@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { searchYTMusic } from '@/lib/music/ytmusic'
-import { scoreTrackMatch, getKnownTrackOverride, type SpotifyTrackInput, type MatchResult } from '@/lib/matcher'
+import { scoreTrackMatch, type SpotifyTrackInput, type MatchResult } from '@/lib/matcher'
 
 export async function POST(request: Request) {
   try {
@@ -26,68 +26,35 @@ export async function POST(request: Request) {
     for (let i = 0; i < targetTracks.length; i += chunkSize) {
       const chunk = targetTracks.slice(i, i + chunkSize)
       const chunkPromises = chunk.map(async (spotifyTrack) => {
-        const overrideId = getKnownTrackOverride(spotifyTrack.title, spotifyTrack.artist)
-        if (overrideId) {
-          return {
-            spotifyTrack,
-            matchedTrack: {
-              id: overrideId,
-              videoId: overrideId,
-              title: spotifyTrack.title,
-              artist: { name: spotifyTrack.artist },
-              album: spotifyTrack.album ? { name: spotifyTrack.album } : undefined,
-              thumbnail: spotifyTrack.coverUrl,
-              thumbnailUrl: spotifyTrack.coverUrl,
-              duration: spotifyTrack.durationMs ? Math.round(spotifyTrack.durationMs / 1000) : 0,
-              source: 'ytmusic' as const,
-            },
-            status: 'matched' as const,
-            score: 1.0,
-          }
-        }
-
         const query = `${spotifyTrack.title} ${spotifyTrack.artist}`
         try {
           const searchRes = await searchYTMusic(query)
           const candidateSongs = searchRes.songs || []
-          const topResult = searchRes.topResult?.data ? [searchRes.topResult.data] : []
-          const allCandidates = [...topResult, ...candidateSongs]
 
           let bestMatch: any = null
           let bestScore = 0
 
-          for (const candidate of allCandidates) {
-            const { isMatch, score } = scoreTrackMatch(spotifyTrack, candidate, 0.40)
-            if (isMatch && score > bestScore) {
+          for (const candidate of candidateSongs) {
+            const { score } = scoreTrackMatch(spotifyTrack, candidate, 0.6)
+            if (score > bestScore) {
               bestScore = score
               bestMatch = candidate
             }
           }
 
-          // Fallback search with "audio" keyword if not matched
-          if (!bestMatch) {
-            try {
-              const fbRes = await searchYTMusic(`${spotifyTrack.title} ${spotifyTrack.artist} audio`)
-              const fbCandidates = [
-                ...(fbRes.topResult?.data ? [fbRes.topResult.data] : []),
-                ...(fbRes.songs || []),
-              ]
-              for (const candidate of fbCandidates) {
-                const { isMatch, score } = scoreTrackMatch(spotifyTrack, candidate, 0.40)
-                if (isMatch && score > bestScore) {
-                  bestScore = score
-                  bestMatch = candidate
-                }
-              }
-            } catch {}
-          }
-
-          if (bestMatch && bestScore >= 0.35) {
+          if (bestMatch && bestScore >= 0.5) {
             return {
               spotifyTrack,
               matchedTrack: bestMatch,
               status: 'matched' as const,
               score: bestScore,
+            }
+          } else if (candidateSongs.length > 0) {
+            return {
+              spotifyTrack,
+              matchedTrack: candidateSongs[0],
+              status: 'matched' as const,
+              score: 0.5,
             }
           } else {
             return {

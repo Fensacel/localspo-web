@@ -15,25 +15,6 @@ export interface MatchResult {
   score: number
 }
 
-export const KNOWN_TRACK_OVERRIDES: Record<string, string> = {
-  'iconic heart': 'A9EpZWrQ3dM',
-  'iconic heart hearts2hearts': 'A9EpZWrQ3dM',
-  'heart emoji hearts2hearts': 'A9EpZWrQ3dM',
-  'heart emoji': 'A9EpZWrQ3dM',
-  'iconic heart heart emoji': 'A9EpZWrQ3dM',
-}
-
-export function getKnownTrackOverride(title: string, artist?: string): string | null {
-  if (!title) return null
-  const normTitle = normalizeString(title)
-  const normArtist = artist ? normalizeString(artist) : ''
-  const combined = `${normTitle} ${normArtist}`.trim()
-
-  if (KNOWN_TRACK_OVERRIDES[combined]) return KNOWN_TRACK_OVERRIDES[combined]
-  if (KNOWN_TRACK_OVERRIDES[normTitle]) return KNOWN_TRACK_OVERRIDES[normTitle]
-  return null
-}
-
 const LANGUAGE_VERSION_KEYWORDS = [
   'japanese',
   'japan',
@@ -134,20 +115,7 @@ export function scoreTrackMatch(
   ytTrack: Track,
   threshold = 0.45
 ): { isMatch: boolean; score: number } {
-  const normTargetTitle = normalizeString(spotify.title)
-  const normYtTitle = normalizeString(ytTrack.title)
-
   const titleScore = stringSimilarity(spotify.title, ytTrack.title)
-  const titleIncludes =
-    (normTargetTitle.length >= 3 && normYtTitle.includes(normTargetTitle)) ||
-    (normYtTitle.length >= 3 && normTargetTitle.includes(normYtTitle))
-  const effectiveTitleScore = titleIncludes ? Math.max(titleScore, 0.85) : titleScore
-
-  // CRITICAL RULE: If title similarity is below 0.30 and not a substring match, NEVER match
-  // (Prevents matching completely different songs by the same artist e.g. "Flutter" for "Iconic Heart")
-  if (effectiveTitleScore < 0.30 && !titleIncludes) {
-    return { isMatch: false, score: 0 }
-  }
 
   const ytArtistName = typeof ytTrack.artist === 'string' ? ytTrack.artist : ytTrack.artist?.name ?? ''
   const artistScore = stringSimilarity(spotify.artist, ytArtistName)
@@ -158,9 +126,9 @@ export function scoreTrackMatch(
     const ytDurationMs = ytTrack.duration * 1000
     const diffMs = Math.abs(spotify.durationMs - ytDurationMs)
     if (diffMs <= 3000) {
-      durationBonus = 0.15
+      durationBonus = 0.20
     } else if (diffMs <= 6000) {
-      durationBonus = 0.08
+      durationBonus = 0.10
     } else if (diffMs > 25000) {
       durationPenalty = 0.50 // Heavy penalty if length differs by >25s
     } else if (diffMs > 12000) {
@@ -189,13 +157,13 @@ export function scoreTrackMatch(
 
   // Bonus for exact normalized title match
   let exactTitleBonus = 0
-  if (normTargetTitle === normYtTitle && normTargetTitle.length > 0) {
-    exactTitleBonus = 0.25
+  if (normalizeString(spotify.title) === normalizeString(ytTrack.title)) {
+    exactTitleBonus = 0.20
   }
 
-  // Composite score calculation with high title weighting
+  // Composite score calculation
   const rawScore =
-    effectiveTitleScore * 0.60 +
+    titleScore * 0.45 +
     artistScore * 0.25 +
     durationBonus +
     exactTitleBonus +

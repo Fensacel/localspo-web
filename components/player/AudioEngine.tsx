@@ -7,7 +7,6 @@ import { pickBestMatch } from '@/lib/playSong'
 import { createClient } from '@/lib/supabase/client'
 import type { Track } from '@/types/track'
 import { preloadAudioStream, preloadSingleSong, preloadQueue, isYouTubeVideoId } from '@/lib/queuePreloader'
-import { getKnownTrackOverride } from '@/lib/matcher'
 
 declare global {
   interface Window {
@@ -52,27 +51,6 @@ export function AudioEngine() {
     setIsLoading,
     clearSeek,
   } = usePlayerStore()
-
-  // Global mobile audio unlock on first user gesture
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    const unlockAudio = () => {
-      const audio = audioRef.current
-      if (audio && (!audio.src || audio.paused)) {
-        try {
-          audio.load()
-        } catch {}
-      }
-    }
-    window.addEventListener('touchstart', unlockAudio, { passive: true, once: true })
-    window.addEventListener('pointerdown', unlockAudio, { passive: true, once: true })
-    window.addEventListener('click', unlockAudio, { passive: true, once: true })
-    return () => {
-      window.removeEventListener('touchstart', unlockAudio)
-      window.removeEventListener('pointerdown', unlockAudio)
-      window.removeEventListener('click', unlockAudio)
-    }
-  }, [])
 
   // 1. Setup MediaSession API for lock-screen, Android notification bar & background controls
   useEffect(() => {
@@ -289,12 +267,7 @@ export function AudioEngine() {
     }
 
     function onPause() {
-      if (activeEngine === 'html5') {
-        // Only sync pause if store was also set to paused, avoiding background tab sleep interruptions
-        if (!usePlayerStore.getState().isPlaying) {
-          setIsPlaying(false)
-        }
-      }
+      if (activeEngine === 'html5') setIsPlaying(false)
     }
 
     function onEnded() {
@@ -461,12 +434,7 @@ export function AudioEngine() {
       if (!currentTrack) return
       setIsLoading(true)
 
-      const artistName = typeof currentTrack.artist === 'string' ? currentTrack.artist : currentTrack.artist?.name || ''
-      const overrideId = getKnownTrackOverride(currentTrack.title, artistName)
-
-      let targetVideoId =
-        (overrideId && isYouTubeVideoId(overrideId) ? overrideId : undefined) ||
-        (isYouTubeVideoId(currentTrack.videoId) ? currentTrack.videoId : undefined)
+      let targetVideoId = isYouTubeVideoId(currentTrack.videoId) ? currentTrack.videoId : undefined
 
       // Resolve videoId if missing or invalid
       if (!targetVideoId) {
@@ -477,6 +445,7 @@ export function AudioEngine() {
 
         if (!targetVideoId) {
           try {
+            const artistName = typeof currentTrack.artist === 'string' ? currentTrack.artist : currentTrack.artist?.name || ''
             const query = `${currentTrack.title} ${artistName}`
             const searchRes = await fetch(`/api/search?q=${encodeURIComponent(query)}&type=songs`)
             if (reqId !== audioRequestIdRef.current) return
@@ -488,30 +457,12 @@ export function AudioEngine() {
             const topResult: Track | null = searchJson.data?.topResult?.data || null
             const candidates: Track[] = topResult ? [topResult, ...songsList] : songsList
 
-            let matched = pickBestMatch(candidates, {
+            const matched = pickBestMatch(candidates, {
               id: currentTrack.id,
               title: currentTrack.title,
               artist: artistName,
               durationMs: (currentTrack.duration || 0) * 1000,
             })
-
-            if (!matched) {
-              try {
-                const fallbackRes = await fetch(`/api/search?q=${encodeURIComponent(`${currentTrack.title} ${artistName} audio`)}&type=songs`)
-                if (fallbackRes.ok && reqId === audioRequestIdRef.current) {
-                  const fbJson = await fallbackRes.json()
-                  const fbSongs: Track[] = fbJson.data?.songs || []
-                  const fbTop: Track | null = fbJson.data?.topResult?.data || null
-                  const fbCandidates: Track[] = fbTop ? [fbTop, ...fbSongs] : fbSongs
-                  matched = pickBestMatch(fbCandidates, {
-                    id: currentTrack.id,
-                    title: currentTrack.title,
-                    artist: artistName,
-                    durationMs: (currentTrack.duration || 0) * 1000,
-                  })
-                }
-              } catch {}
-            }
 
             const bestVideoId = matched?.videoId || matched?.id
             if (bestVideoId && isYouTubeVideoId(bestVideoId)) {
@@ -536,25 +487,26 @@ export function AudioEngine() {
       currentTargetVideoIdRef.current = targetVideoId
       hasLoggedHistoryRef.current = false
 
+      // Try YouTube bridge first if activeEngine is 'yt', otherwise HTML5
       if (activeEngine === 'yt') {
         if (audio) {
-          try { audio.pause(); audio.src = '' } catch {}
+          try { audio.pause() } catch {}
         }
         if (ytPlayerRef.current) {
           try {
             ytPlayerRef.current.loadVideoById(targetVideoId)
-            const { isPlaying: shouldPlay } = usePlayerStore.getState()
-            if (shouldPlay) ytPlayerRef.current.playVideo()
+            ytPlayerRef.current.playVideo()
           } catch (e) {
             log('YT load error:', e)
           }
         }
       } else if (audio) {
-        const streamUrl = `/api/stream/${targetVideoId}`
-        if (!audio.src.endsWith(streamUrl)) {
-          audio.src = streamUrl
-          audio.load()
+        if (ytPlayerRef.current?.pauseVideo) {
+          try { ytPlayerRef.current.pauseVideo() } catch {}
         }
+        const streamUrl = `/api/stream/${targetVideoId}`
+        audio.src = streamUrl
+        audio.load()
 
         const { isPlaying: shouldPlay } = usePlayerStore.getState()
         if (shouldPlay && reqId === audioRequestIdRef.current) {
@@ -563,13 +515,11 @@ export function AudioEngine() {
             playPromiseRef.current = p
             p.catch((err) => {
               if (err?.name !== 'AbortError') {
-                log('HTML5 play error (falling back to YouTube bridge):', err)
+                log('HTML5 play failed, switching to YouTube Bridge:', err)
                 setActiveEngine('yt')
                 if (ytPlayerRef.current && targetVideoId) {
-                  try {
-                    ytPlayerRef.current.loadVideoById(targetVideoId)
-                    ytPlayerRef.current.playVideo()
-                  } catch {}
+                  ytPlayerRef.current.loadVideoById(targetVideoId)
+                  ytPlayerRef.current.playVideo()
                 }
               }
             })
@@ -623,7 +573,8 @@ export function AudioEngine() {
           playPromiseRef.current = p
           p.catch((err) => {
             if (err?.name !== 'AbortError') {
-              log('play error / background throttle:', err)
+              log('play failed:', err)
+              setIsPlaying(false)
             }
           })
         }
