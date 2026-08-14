@@ -276,11 +276,14 @@ export function AudioEngine() {
         logAudio('canplay event: readyState =', audio.readyState)
         setIsLoading(false)
         if (usePlayerStore.getState().isPlaying && audio.paused) {
+          logAudio('triggering play from canplay')
           const p = audio.play()
           if (p !== undefined) {
             playPromiseRef.current = p
-            p.catch((err) => {
-              logAudio('canplay play catch:', err?.name)
+            p.then(() => {
+              logAudio('play resolved from canplay')
+            }).catch((err) => {
+              console.error('[AUDIO] canplay play rejected:', err?.name, err?.message)
             })
           }
         }
@@ -289,7 +292,7 @@ export function AudioEngine() {
 
     function onPlay() {
       if (activeEngine === 'html5') {
-        logAudio('playing:', currentTrack?.title)
+        logAudio('playing confirmed for:', currentTrack?.title)
         setIsPlaying(true)
         setIsLoading(false)
         if ('mediaSession' in navigator) {
@@ -317,7 +320,7 @@ export function AudioEngine() {
         const p = audio.play()
         if (p !== undefined) {
           p.catch((err) => {
-            if (err?.name !== 'AbortError') logAudio('Repeat play error:', err)
+            if (err?.name !== 'AbortError') console.error('[AUDIO] Repeat play error:', err)
           })
         }
       } else {
@@ -327,14 +330,14 @@ export function AudioEngine() {
 
     function onWaiting() {
       if (activeEngine === 'html5') {
-        logAudio('waiting for canplay')
+        logAudio('waiting for audio chunks')
         setIsLoading(true)
       }
     }
 
     function onPlaying() {
       if (activeEngine === 'html5') {
-        logAudio('playing confirmed')
+        logAudio('playing event fired')
         setIsLoading(false)
       }
     }
@@ -342,14 +345,13 @@ export function AudioEngine() {
     function onError() {
       if (activeEngine === 'html5') {
         const err = audio.error
-        logAudio('error:', currentTrack?.title, err?.code, err?.message)
+        console.error('[AUDIO] error event:', currentTrack?.title, err?.code, err?.message)
         // Fallback to YT if source cannot be decoded/played natively
         if (err?.code === 4) {
           const vid = currentTargetVideoIdRef.current || currentTrack?.videoId
           if (vid && ytPlayerRef.current) {
             setActiveEngine('yt')
             audio.pause()
-            audio.src = ''
             try {
               ytPlayerRef.current.loadVideoById(vid)
               ytPlayerRef.current.playVideo()
@@ -450,7 +452,7 @@ export function AudioEngine() {
     return () => clearInterval(timer)
   }, [activeEngine, isPlaying, currentTrack, setCurrentTime, setDuration])
 
-  // 6. Centralized Atomic Track Switching (STOP -> LOAD -> WAIT -> PLAY with Generation/Token Protection)
+  // 6. Centralized Atomic Track Switching (STOP -> LOAD -> PLAY with Generation/Token Protection)
   useEffect(() => {
     if (!currentTrack) return
     const trackId = currentTrack.id
@@ -464,13 +466,11 @@ export function AudioEngine() {
 
     logAudio('stop previous track')
 
-    // 1. ATOMIC STOP: Immediately pause and reset old audio source
+    // 1. ATOMIC STOP: Pause and reset previous position immediately
     if (audio) {
       try {
         audio.pause()
-        audio.removeAttribute('src')
         audio.currentTime = 0
-        audio.load()
       } catch {}
     }
     if (ytPlayerRef.current?.pauseVideo) {
@@ -549,16 +549,24 @@ export function AudioEngine() {
         const streamUrl = `/api/stream/${targetVideoId}`
         logAudio('source assigned:', streamUrl)
         audio.src = streamUrl
-        audio.load()
+
+        logAudio('play requested:', {
+          src: audio.src,
+          readyState: audio.readyState,
+          networkState: audio.networkState,
+          paused: audio.paused,
+          currentTime: audio.currentTime,
+        })
 
         const { isPlaying: shouldPlay } = usePlayerStore.getState()
         if (shouldPlay && reqId === audioRequestIdRef.current) {
-          logAudio('waiting for canplay')
           const p = audio.play()
           if (p !== undefined) {
             playPromiseRef.current = p
-            p.catch((err) => {
-              logAudio('HTML5 play deferred/waiting:', err?.name)
+            p.then(() => {
+              logAudio('play resolved successfully')
+            }).catch((err) => {
+              console.error('[AUDIO] play rejected:', err?.name, err?.message)
             })
           }
         }
@@ -605,11 +613,14 @@ export function AudioEngine() {
 
     if (isPlaying) {
       if (audio.src && audio.src !== window.location.href && audio.paused) {
+        logAudio('resuming audio.play()')
         const p = audio.play()
         if (p !== undefined) {
           playPromiseRef.current = p
-          p.catch((err) => {
-            logAudio('HTML5 play deferred/waiting:', err?.name)
+          p.then(() => {
+            logAudio('resume play resolved')
+          }).catch((err) => {
+            console.error('[AUDIO] resume play rejected:', err?.name, err?.message)
           })
         }
       }
