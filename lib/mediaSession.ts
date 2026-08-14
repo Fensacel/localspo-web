@@ -31,7 +31,8 @@ export function updateMediaSession(
       ? track.artist
       : (track.artist as { name?: string })?.name || 'Unknown Artist'
 
-  const artworkSrc = getAbsoluteUrl(track.coverUrl || track.thumbnailUrl || '/logo.png')
+  const rawArtwork = track.coverUrl || (track as { thumbnail?: string; thumbnailUrl?: string }).thumbnail || (track as { thumbnail?: string; thumbnailUrl?: string }).thumbnailUrl || '/logo.png'
+  const artworkSrc = getAbsoluteUrl(rawArtwork)
 
   const artwork: MediaImage[] = [
     { src: artworkSrc, sizes: '96x96', type: 'image/png' },
