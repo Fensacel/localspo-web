@@ -65,14 +65,6 @@ export async function resolveStream(videoId: string): Promise<StreamInfo | null>
     return resultVr
   }
 
-  // 3. Fallback to local python yt_dlp if available in local dev
-  const resultYtDlp = await resolveWithLocalYtDlp(videoId)
-  if (resultYtDlp) {
-    setCache(videoId, resultYtDlp)
-    log('Stream resolved via local yt-dlp:', videoId)
-    return resultYtDlp
-  }
-
   log('Stream resolution failed for:', videoId)
   return null
 }
@@ -139,49 +131,6 @@ async function resolveWithAndroidVr(videoId: string): Promise<StreamInfo | null>
     }
   } catch (err) {
     log('ANDROID_VR resolver error:', err)
-    return null
-  }
-}
-
-/**
- * Local Node.js environment fallback only (bypassed in Cloudflare Workers / Edge)
- */
-async function resolveWithLocalYtDlp(videoId: string): Promise<StreamInfo | null> {
-  try {
-    const cp = await import('child_process').catch(() => null)
-    if (!cp || typeof cp.spawn !== 'function') return null
-
-    return new Promise((resolve) => {
-      const url = `https://www.youtube.com/watch?v=${videoId}`
-      const proc = cp.spawn(
-        'python',
-        ['-m', 'yt_dlp', '-f', 'bestaudio', '--no-playlist', '--no-warnings', '-j', '--quiet', url],
-        { shell: false }
-      )
-
-      let stdout = ''
-      proc.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString() })
-      proc.on('error', () => resolve(null))
-      proc.on('close', (code: number) => {
-        if (code !== 0) return resolve(null)
-        try {
-          const lines = stdout.trim().split('\n').filter(Boolean)
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const info: any = JSON.parse(lines[lines.length - 1])
-          const streamUrl: string | undefined = info?.url
-          if (!streamUrl) return resolve(null)
-
-          resolve({
-            url: streamUrl,
-            mimeType: info?.ext === 'm4a' ? 'audio/mp4' : 'audio/webm',
-            quality: info?.abr ? `${info.abr}kbps` : 'best',
-          })
-        } catch {
-          resolve(null)
-        }
-      })
-    })
-  } catch {
     return null
   }
 }

@@ -72,21 +72,20 @@ export async function GET(
     const contentType = upstream.headers.get('content-type') ?? stream.mimeType ?? 'audio/webm'
     const contentLength = upstream.headers.get('content-length')
     const contentRange = upstream.headers.get('content-range')
-    const acceptRanges = upstream.headers.get('accept-ranges')
 
-    const responseHeaders: HeadersInit = {
+    const responseHeaders = new Headers({
       'Content-Type': contentType,
       'Accept-Ranges': 'bytes',
       'Access-Control-Allow-Origin': '*',
       'Cache-Control': 'no-cache, no-store, must-revalidate',
-    }
-    if (contentLength) responseHeaders['Content-Length'] = contentLength
-    if (contentRange) responseHeaders['Content-Range'] = contentRange
+    })
+    if (contentLength) responseHeaders.set('Content-Length', contentLength)
+    if (contentRange) responseHeaders.set('Content-Range', contentRange)
 
-    return new NextResponse(upstream.body, {
+    return new Response(upstream.body, {
       status: upstream.status || 200,
       headers: responseHeaders,
-    })
+    }) as unknown as NextResponse
   }
 
   try {
@@ -95,7 +94,7 @@ export async function GET(
     console.error('[/api/stream]', err)
     return NextResponse.json(
       { success: false, error: { code: 'STREAM_ERROR', message: 'Stream resolution failed.' } },
-      { status: 500 }
+      { status: 503 }
     )
   }
 }
