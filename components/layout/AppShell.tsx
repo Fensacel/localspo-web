@@ -12,6 +12,7 @@ import { useUIStore } from '@/store/uiStore'
 import { usePlayerStore } from '@/store/playerStore'
 import { LyricsPanel } from '@/components/lyrics/LyricsPanel'
 import { QueuePanel } from '@/components/player/QueuePanel'
+import { PWAInstallPrompt } from '@/components/pwa/PWAInstallPrompt'
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { queueOpen, lyricsOpen, setLyricsOpen, sidebarOpen } = useUIStore()
@@ -80,6 +81,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="flex h-screen w-screen bg-[#050505] text-white overflow-hidden relative">
       {/* Global In-App Toast Notifications */}
       <ToastContainer />
+
+      {/* Floating PWA Install Prompt Banner */}
+      <PWAInstallPrompt />
 
       {/* Audio engine — single hidden audio element */}
       <AudioEngine />

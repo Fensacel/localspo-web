@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { Play, ListPlus, PlusCircle, Heart, Music, ListOrdered, ChevronRight, Check } from 'lucide-react'
 import { Track } from '@/types/track'
 import { usePlayerStore } from '@/store/playerStore'
@@ -45,6 +46,7 @@ function trackToStreamSong(track: Track): StreamSong {
 
 export function TrackContextMenu({ track, position, onClose }: TrackContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null)
+  const [mounted, setMounted] = useState(false)
   const { play, addToQueue, playNext } = usePlayerStore()
   const { isLiked, toggleLike } = useLikedTracks()
   const { playlists: serverPlaylists, addTrackToPlaylist, createPlaylist } = usePlaylists()
@@ -62,6 +64,7 @@ export function TrackContextMenu({ track, position, onClose }: TrackContextMenuP
       : track.artist?.name || ''
 
   useEffect(() => {
+    setMounted(true)
     setIsMobile(window.innerWidth < 640)
     const handleResize = () => setIsMobile(window.innerWidth < 640)
     window.addEventListener('resize', handleResize)
@@ -88,7 +91,7 @@ export function TrackContextMenu({ track, position, onClose }: TrackContextMenuP
     }
   }, [onClose])
 
-  if (!position) return null
+  if (!mounted || !position) return null
 
   // Combine local and server playlists with deduplication
   const combinedPlaylists = [
@@ -113,11 +116,19 @@ export function TrackContextMenu({ track, position, onClose }: TrackContextMenuP
     return addedPlaylistIds.includes(playlistId)
   }
 
-  // Desktop positioning
+  // Desktop positioning with smart flip and bottom player clearance
   const menuWidth = 240
-  const menuHeight = 280
-  const left = isMobile ? 0 : Math.min(position.x, window.innerWidth - menuWidth - 10)
-  const top = isMobile ? 0 : Math.min(position.y, window.innerHeight - menuHeight - 10)
+  const estimatedMenuHeight = 330
+  const bottomPlayerClearance = 96 // clears bottom player completely
+
+  let top = position.y
+  // If clicked near the bottom player, flip menu upwards
+  if (position.y + estimatedMenuHeight > window.innerHeight - bottomPlayerClearance) {
+    top = Math.max(16, position.y - estimatedMenuHeight)
+  }
+  // Clamp so it never overflows screen bounds
+  top = Math.max(16, Math.min(top, window.innerHeight - estimatedMenuHeight - bottomPlayerClearance))
+  const left = Math.max(16, Math.min(position.x, window.innerWidth - menuWidth - 16))
 
   const handlePlayNow = () => {
     play(track)
@@ -147,7 +158,6 @@ export function TrackContextMenu({ track, position, onClose }: TrackContextMenuP
     const localPl = localPlaylists.find((p) => p.id === playlistId)
 
     if (isAlreadyIn) {
-      // Remove from playlist
       if (localPl) {
         const matchingSong = localPl.songs.find(
           (s) =>
@@ -163,12 +173,10 @@ export function TrackContextMenu({ track, position, onClose }: TrackContextMenuP
       showToast(`Dihapus dari playlist "${playlistTitle}"`, 'info')
       setTimeout(() => onClose(), 600)
     } else {
-      // Add to playlist
       const streamSong = trackToStreamSong(track)
       addSongToPlaylist(playlistId, streamSong)
       setAddedPlaylistIds((prev) => [...prev, playlistId])
 
-      // Also attempt server sync if applicable
       try {
         await addTrackToPlaylist(playlistId, track)
       } catch {
@@ -187,7 +195,6 @@ export function TrackContextMenu({ track, position, onClose }: TrackContextMenuP
     const newId = crypto.randomUUID()
     const streamSong = trackToStreamSong(track)
 
-    // Add locally to usePlaylistStore
     usePlaylistStore.setState((state) => ({
       playlists: [
         {
@@ -200,7 +207,6 @@ export function TrackContextMenu({ track, position, onClose }: TrackContextMenuP
       ],
     }))
 
-    // Also attempt server sync if logged in
     createPlaylist(name).then((res: any) => {
       if (res?.id) {
         addTrackToPlaylist(res.id, track).catch(() => {})
@@ -219,7 +225,7 @@ export function TrackContextMenu({ track, position, onClose }: TrackContextMenuP
       className={
         isMobile
           ? 'w-full bg-[#181818] border-t border-white/10 rounded-t-3xl shadow-2xl p-4 text-sm text-gray-200 backdrop-blur-2xl animate-in slide-in-from-bottom duration-200'
-          : 'fixed z-50 w-56 bg-[#1e1e1e] border border-white/10 rounded-xl shadow-2xl py-2 text-sm text-gray-200 backdrop-blur-md'
+          : 'fixed z-[9999] w-60 bg-[#1a1a1a] border border-white/15 rounded-2xl shadow-2xl py-2 text-sm text-gray-200 backdrop-blur-xl animate-in fade-in zoom-in-95 duration-150'
       }
       onClick={(e) => e.stopPropagation()}
     >
@@ -298,13 +304,13 @@ export function TrackContextMenu({ track, position, onClose }: TrackContextMenuP
           <ChevronRight size={16} className={`text-gray-400 transition-transform ${showPlaylistsSubmenu ? 'rotate-90 sm:rotate-0' : ''}`} />
         </button>
 
-        {/* Submenu (Desktop popup or mobile accordion) */}
+        {/* Submenu */}
         {showPlaylistsSubmenu && (
           <div
             className={
               isMobile
                 ? 'mt-2 pl-4 pr-1 space-y-1 max-h-48 overflow-y-auto'
-                : 'absolute left-full top-0 ml-1 w-56 bg-[#1e1e1e] border border-white/10 rounded-xl shadow-2xl py-1 text-sm max-h-60 overflow-y-auto z-50'
+                : 'absolute left-full top-0 ml-1 w-56 bg-[#1a1a1a] border border-white/15 rounded-xl shadow-2xl py-1 text-sm max-h-60 overflow-y-auto z-[10000]'
             }
           >
             <button
@@ -343,15 +349,16 @@ export function TrackContextMenu({ track, position, onClose }: TrackContextMenuP
   )
 
   if (isMobile) {
-    return (
+    return createPortal(
       <div
-        className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex flex-col justify-end"
+        className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-sm flex flex-col justify-end"
         onClick={onClose}
       >
         {content}
-      </div>
+      </div>,
+      document.body
     )
   }
 
-  return content
+  return createPortal(content, document.body)
 }

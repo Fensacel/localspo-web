@@ -152,7 +152,7 @@ export function QueuePanel() {
   }
 
   return (
-    <div className="h-full flex flex-col bg-[#121212] border-l border-[#282828] w-80 shrink-0 z-20 overflow-hidden font-sans">
+    <div className="h-full flex flex-col bg-[#121212] border-l border-[#282828] w-80 shrink-0 z-20 overflow-hidden font-sans animate-in slide-in-from-right duration-300 ease-out">
       {/* Header */}
       <div className="p-4 border-b border-[#282828] flex items-center justify-between">
         <h2 className="text-base font-bold text-white tracking-tight">Antrean</h2>

@@ -6,6 +6,15 @@ import { AppShell } from '@/components/layout/AppShell'
 
 const inter = Inter({ subsets: ['latin'] })
 
+export const viewport = {
+  themeColor: '#050505',
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: 'cover',
+}
+
 export const metadata: Metadata = {
   title: 'LocalSpo — Free Music Player',
   description: 'Stream music, discover artists, and share what you love without ads.',
@@ -19,6 +28,10 @@ export const metadata: Metadata = {
     capable: true,
     statusBarStyle: 'black-translucent',
     title: 'LocalSpo',
+  },
+  other: {
+    'mobile-web-app-capable': 'yes',
+    'apple-mobile-web-app-capable': 'yes',
   },
   openGraph: {
     title: 'LocalSpo',

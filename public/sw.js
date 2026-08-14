@@ -1,5 +1,5 @@
 // LocalSpo PWA Service Worker
-const CACHE_NAME = 'localspo-v1';
+const CACHE_NAME = 'localspo-v2';
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
@@ -16,12 +16,14 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
+// Pass-through network requests cleanly without breaking Next.js hydration or dev hot reload
 self.addEventListener('fetch', (event) => {
-  // Let network handle dynamic streaming and API calls
-  if (event.request.url.includes('/api/')) {
+  if (
+    event.request.method !== 'GET' ||
+    event.request.url.includes('/api/') ||
+    event.request.url.includes('/_next/') ||
+    event.request.url.includes('hot-update')
+  ) {
     return;
   }
-  event.respondWith(
-    fetch(event.request).catch(() => caches.match(event.request))
-  );
 });

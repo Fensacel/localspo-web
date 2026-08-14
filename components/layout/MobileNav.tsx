@@ -34,7 +34,7 @@ export function MobileNav() {
                 setLyricsOpen(false)
                 router.push(href)
               }}
-              className={`flex flex-col items-center gap-1 py-1 px-4 rounded-xl transition-all duration-200 ${
+              className={`flex flex-col items-center gap-1 py-1 px-4 rounded-xl active:scale-90 transition-all duration-200 ${
                 active
                   ? 'text-white scale-105'
                   : 'text-gray-400 hover:text-gray-200'

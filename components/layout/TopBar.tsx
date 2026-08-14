@@ -9,6 +9,8 @@ import { useState, useRef, useEffect } from 'react'
 import { useAuthStore } from '@/store/authStore'
 import { createClient } from '@/lib/supabase/client'
 import { ImportPlaylistModal } from '@/components/playlist/ImportPlaylistModal'
+import { triggerPWAInstall } from '@/components/pwa/PWAInstallPrompt'
+import { Smartphone } from 'lucide-react'
 
 export function TopBar() {
   const router = useRouter()
@@ -130,6 +132,11 @@ export function TopBar() {
                     label="Import Playlist"
                     onClick={() => { setDropdownOpen(false); setImportModalOpen(true) }}
                     highlight
+                  />
+                  <DropdownItem
+                    icon={Smartphone}
+                    label="Install App"
+                    onClick={() => { setDropdownOpen(false); triggerPWAInstall() }}
                   />
                 </div>
 

@@ -401,6 +401,19 @@ export function AudioEngine() {
     const audio = audioRef.current
     const reqId = ++audioRequestIdRef.current
 
+    // Instantly stop previous playing track across both engines so skipped track stops immediately
+    if (audio) {
+      try {
+        audio.pause()
+      } catch {}
+    }
+    if (ytPlayerRef.current?.pauseVideo) {
+      try {
+        ytPlayerRef.current.pauseVideo()
+      } catch {}
+    }
+    setCurrentTime(0)
+
     const safetyTimer = setTimeout(() => {
       if (reqId === audioRequestIdRef.current) {
         setIsLoading(false)
@@ -465,6 +478,9 @@ export function AudioEngine() {
       hasLoggedHistoryRef.current = false
 
       if (activeEngine === 'yt') {
+        if (audio) {
+          try { audio.pause() } catch {}
+        }
         if (ytPlayerRef.current) {
           try {
             ytPlayerRef.current.loadVideoById(targetVideoId)
@@ -474,6 +490,9 @@ export function AudioEngine() {
           }
         }
       } else if (audio) {
+        if (ytPlayerRef.current?.pauseVideo) {
+          try { ytPlayerRef.current.pauseVideo() } catch {}
+        }
         const streamUrl = `/api/stream/${targetVideoId}`
         audio.src = streamUrl
         audio.load()
