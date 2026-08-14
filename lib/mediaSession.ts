@@ -6,6 +6,7 @@ export interface PlayerActions {
   onNext: () => void
   onPrevious: () => void
   onSeek: (time: number) => void
+  getCurrentTime?: () => number
 }
 
 function getAbsoluteUrl(url?: string): string {
@@ -66,11 +67,13 @@ export function updateMediaSession(
     })
     navigator.mediaSession.setActionHandler('seekbackward', (details) => {
       const skipTime = details.seekOffset || 10
-      playerActions.onSeek(Math.max(0, -skipTime))
+      const current = playerActions.getCurrentTime ? playerActions.getCurrentTime() : 0
+      playerActions.onSeek(Math.max(0, current - skipTime))
     })
     navigator.mediaSession.setActionHandler('seekforward', (details) => {
       const skipTime = details.seekOffset || 10
-      playerActions.onSeek(skipTime)
+      const current = playerActions.getCurrentTime ? playerActions.getCurrentTime() : 0
+      playerActions.onSeek(current + skipTime)
     })
     navigator.mediaSession.setActionHandler('stop', playerActions.onPause)
   } catch (err) {
