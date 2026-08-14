@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { usePlayerStore } from '@/store/playerStore'
 import { useLibraryStore } from '@/store/useLibraryStore'
 import { pickBestMatch } from '@/lib/playSong'
@@ -18,8 +18,12 @@ declare global {
 
 const isDev = process.env.NODE_ENV === 'development'
 
-function log(...args: unknown[]) {
-  if (isDev) console.log('[AudioEngine]', ...args)
+function logAudio(...args: unknown[]) {
+  if (isDev) console.log('[AUDIO]', ...args)
+}
+
+function logMediaSession(...args: unknown[]) {
+  if (isDev) console.log('[MEDIA SESSION]', ...args)
 }
 
 export function AudioEngine() {
@@ -67,36 +71,46 @@ export function AudioEngine() {
           : currentTrack.album?.name || 'LocalSpo Music'
       const artworkUrl = currentTrack.thumbnail || currentTrack.thumbnailUrl || '/logo.png'
 
-      navigator.mediaSession.metadata = new MediaMetadata({
-        title: currentTrack.title,
-        artist: artistName,
-        album: albumName,
-        artwork: [
-          { src: artworkUrl, sizes: '96x96', type: 'image/png' },
-          { src: artworkUrl, sizes: '128x128', type: 'image/png' },
-          { src: artworkUrl, sizes: '192x192', type: 'image/png' },
-          { src: artworkUrl, sizes: '256x256', type: 'image/png' },
-          { src: artworkUrl, sizes: '384x384', type: 'image/png' },
-          { src: artworkUrl, sizes: '512x512', type: 'image/png' },
-        ],
-      })
+      try {
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: currentTrack.title,
+          artist: artistName,
+          album: albumName,
+          artwork: [
+            { src: artworkUrl, sizes: '96x96' },
+            { src: artworkUrl, sizes: '128x128' },
+            { src: artworkUrl, sizes: '192x192' },
+            { src: artworkUrl, sizes: '256x256' },
+            { src: artworkUrl, sizes: '384x384' },
+            { src: artworkUrl, sizes: '512x512' },
+          ],
+        })
+        logMediaSession('metadata updated:', currentTrack.title)
+      } catch (e) {
+        logMediaSession('failed to set metadata:', e)
+      }
     }
 
     try {
       navigator.mediaSession.setActionHandler('play', () => {
+        logMediaSession('action: play')
         usePlayerStore.getState().resume()
       })
       navigator.mediaSession.setActionHandler('pause', () => {
+        logMediaSession('action: pause')
         usePlayerStore.getState().pause()
       })
       navigator.mediaSession.setActionHandler('previoustrack', () => {
+        logMediaSession('action: previoustrack')
         usePlayerStore.getState().previous()
       })
       navigator.mediaSession.setActionHandler('nexttrack', () => {
+        logMediaSession('action: nexttrack')
         usePlayerStore.getState().next()
       })
       navigator.mediaSession.setActionHandler('seekto', (details) => {
         if (details.seekTime !== undefined) {
+          logMediaSession('action: seekto', details.seekTime)
           usePlayerStore.getState().seek(details.seekTime)
         }
       })
@@ -111,14 +125,15 @@ export function AudioEngine() {
         usePlayerStore.getState().seek(current + offset)
       })
       navigator.mediaSession.setActionHandler('stop', () => {
+        logMediaSession('action: stop')
         usePlayerStore.getState().pause()
       })
     } catch (e) {
-      log('MediaSession action handler error:', e)
+      logMediaSession('MediaSession action handler error:', e)
     }
   }, [currentTrack])
 
-  // 2. Sync MediaSession Playback State
+  // 2. Sync MediaSession Playback State with actual audio state
   useEffect(() => {
     if (typeof window === 'undefined' || !('mediaSession' in navigator)) return
     try {
@@ -156,7 +171,7 @@ export function AudioEngine() {
             events: {
               onReady: () => {
                 isYtReadyRef.current = true
-                log('YouTube IFrame Engine Bridge Ready')
+                logAudio('YouTube IFrame Engine Bridge Ready')
                 const target = currentTargetVideoIdRef.current || usePlayerStore.getState().currentTrack?.videoId
                 if (usePlayerStore.getState().isPlaying && target && activeEngine === 'yt') {
                   ytPlayerRef.current.loadVideoById(target)
@@ -175,7 +190,7 @@ export function AudioEngine() {
                   setIsPlaying(false)
                   setIsLoading(false)
                 } else if (event.data === 0) {
-                  log('YouTube player ended track')
+                  logAudio('YouTube player ended track')
                   const currentRepeat = usePlayerStore.getState().repeat
                   if (currentRepeat === 'one') {
                     ytPlayerRef.current?.seekTo(0, true)
@@ -190,13 +205,13 @@ export function AudioEngine() {
                 }
               },
               onError: (err: unknown) => {
-                log('YouTube IFrame error:', err)
+                logAudio('YouTube IFrame error:', err)
                 setIsLoading(false)
               },
             },
           })
         } catch (e) {
-          log('Failed to init YT player:', e)
+          logAudio('Failed to init YT player:', e)
         }
       }
     }
@@ -223,7 +238,7 @@ export function AudioEngine() {
       if (now - lastPositionUpdateRef.current > 1000 && 'mediaSession' in navigator && typeof navigator.mediaSession.setPositionState === 'function') {
         lastPositionUpdateRef.current = now
         try {
-          if (audio.duration > 0) {
+          if (audio.duration > 0 && !isNaN(audio.duration) && isFinite(audio.duration)) {
             navigator.mediaSession.setPositionState({
               duration: audio.duration,
               playbackRate: 1,
@@ -240,11 +255,12 @@ export function AudioEngine() {
 
     function onLoadedMetadata() {
       if (activeEngine !== 'html5') return
+      logAudio('loadedmetadata: duration =', audio.duration)
       setDuration(audio.duration || 0)
       setIsLoading(false)
       if ('mediaSession' in navigator && typeof navigator.mediaSession.setPositionState === 'function') {
         try {
-          if (audio.duration > 0) {
+          if (audio.duration > 0 && !isNaN(audio.duration) && isFinite(audio.duration)) {
             navigator.mediaSession.setPositionState({
               duration: audio.duration,
               playbackRate: 1,
@@ -257,15 +273,23 @@ export function AudioEngine() {
 
     function onCanPlay() {
       if (activeEngine === 'html5') {
+        logAudio('canplay event: readyState =', audio.readyState)
         setIsLoading(false)
         if (usePlayerStore.getState().isPlaying && audio.paused) {
-          audio.play().catch(() => {})
+          const p = audio.play()
+          if (p !== undefined) {
+            playPromiseRef.current = p
+            p.catch((err) => {
+              logAudio('canplay play catch:', err?.name)
+            })
+          }
         }
       }
     }
 
     function onPlay() {
       if (activeEngine === 'html5') {
+        logAudio('playing:', currentTrack?.title)
         setIsPlaying(true)
         setIsLoading(false)
         if ('mediaSession' in navigator) {
@@ -276,6 +300,7 @@ export function AudioEngine() {
 
     function onPause() {
       if (activeEngine === 'html5') {
+        logAudio('paused:', currentTrack?.title)
         setIsPlaying(false)
         if ('mediaSession' in navigator) {
           try { navigator.mediaSession.playbackState = 'paused' } catch {}
@@ -285,13 +310,14 @@ export function AudioEngine() {
 
     function onEnded() {
       if (activeEngine !== 'html5') return
+      logAudio('ended:', currentTrack?.title)
       const currentRepeat = usePlayerStore.getState().repeat
       if (currentRepeat === 'one') {
         audio.currentTime = 0
         const p = audio.play()
         if (p !== undefined) {
           p.catch((err) => {
-            if (err?.name !== 'AbortError') log('Repeat play error:', err)
+            if (err?.name !== 'AbortError') logAudio('Repeat play error:', err)
           })
         }
       } else {
@@ -300,18 +326,24 @@ export function AudioEngine() {
     }
 
     function onWaiting() {
-      if (activeEngine === 'html5') setIsLoading(true)
+      if (activeEngine === 'html5') {
+        logAudio('waiting for canplay')
+        setIsLoading(true)
+      }
     }
 
     function onPlaying() {
-      if (activeEngine === 'html5') setIsLoading(false)
+      if (activeEngine === 'html5') {
+        logAudio('playing confirmed')
+        setIsLoading(false)
+      }
     }
 
     function onError() {
       if (activeEngine === 'html5') {
         const err = audio.error
-        log('HTML5 Audio error:', err?.code, err?.message)
-        // Only fallback to YT if permanent source error
+        logAudio('error:', currentTrack?.title, err?.code, err?.message)
+        // Fallback to YT if source cannot be decoded/played natively
         if (err?.code === 4) {
           const vid = currentTargetVideoIdRef.current || currentTrack?.videoId
           if (vid && ytPlayerRef.current) {
@@ -322,7 +354,7 @@ export function AudioEngine() {
               ytPlayerRef.current.loadVideoById(vid)
               ytPlayerRef.current.playVideo()
             } catch (e) {
-              log('YT loadVideoById error:', e)
+              logAudio('YT loadVideoById error:', e)
             }
           }
         } else {
@@ -387,7 +419,7 @@ export function AudioEngine() {
           progress,
           duration,
         }),
-      }).catch((err) => log('Failed to log history:', err))
+      }).catch((err) => logAudio('Failed to log history:', err))
     })
   }
 
@@ -418,7 +450,7 @@ export function AudioEngine() {
     return () => clearInterval(timer)
   }, [activeEngine, isPlaying, currentTrack, setCurrentTime, setDuration])
 
-  // 6. Load Track on Track ID Change
+  // 6. Centralized Atomic Track Switching (STOP -> LOAD -> WAIT -> PLAY with Generation/Token Protection)
   useEffect(() => {
     if (!currentTrack) return
     const trackId = currentTrack.id
@@ -430,14 +462,23 @@ export function AudioEngine() {
     const audio = audioRef.current
     const reqId = ++audioRequestIdRef.current
 
-    // Instantly stop previous playing track
+    logAudio('stop previous track')
+
+    // 1. ATOMIC STOP: Immediately pause and reset old audio source
     if (audio) {
-      try { audio.pause() } catch {}
+      try {
+        audio.pause()
+        audio.removeAttribute('src')
+        audio.currentTime = 0
+        audio.load()
+      } catch {}
     }
     if (ytPlayerRef.current?.pauseVideo) {
       try { ytPlayerRef.current.pauseVideo() } catch {}
     }
     setCurrentTime(0)
+    hasLoggedHistoryRef.current = false
+    currentTargetVideoIdRef.current = null
 
     const safetyTimer = setTimeout(() => {
       if (reqId === audioRequestIdRef.current) {
@@ -445,13 +486,14 @@ export function AudioEngine() {
       }
     }, 4500)
 
-    async function loadAudioTrack() {
+    async function loadTrack() {
       if (!currentTrack) return
       setIsLoading(true)
+      logAudio('loading:', currentTrack.title)
 
+      // Use existing track matching & resolver architecture
       let targetVideoId = isYouTubeVideoId(currentTrack.videoId) ? currentTrack.videoId : undefined
 
-      // Resolve videoId if missing or invalid
       if (!targetVideoId) {
         const libEntry = useLibraryStore.getState().allSongs[currentTrack.id]
         if (isYouTubeVideoId(libEntry?.resolvedVideoId)) {
@@ -491,6 +533,7 @@ export function AudioEngine() {
         }
       }
 
+      // Race condition check: Ensure this is still the latest requested track
       if (reqId !== audioRequestIdRef.current || !targetVideoId) {
         if (!targetVideoId && reqId === audioRequestIdRef.current) {
           console.warn('[AudioEngine] Failed to resolve videoId for track:', currentTrack.title)
@@ -500,20 +543,22 @@ export function AudioEngine() {
       }
 
       currentTargetVideoIdRef.current = targetVideoId
-      hasLoggedHistoryRef.current = false
 
+      // 2. ATOMIC LOAD & PLAY
       if (audio) {
         const streamUrl = `/api/stream/${targetVideoId}`
+        logAudio('source assigned:', streamUrl)
         audio.src = streamUrl
         audio.load()
 
         const { isPlaying: shouldPlay } = usePlayerStore.getState()
         if (shouldPlay && reqId === audioRequestIdRef.current) {
+          logAudio('waiting for canplay')
           const p = audio.play()
           if (p !== undefined) {
             playPromiseRef.current = p
             p.catch((err) => {
-              log('HTML5 play deferred:', err?.name)
+              logAudio('HTML5 play deferred/waiting:', err?.name)
             })
           }
         }
@@ -535,12 +580,12 @@ export function AudioEngine() {
       }
     }
 
-    loadAudioTrack()
+    loadTrack()
 
     return () => clearTimeout(safetyTimer)
   }, [currentTrack?.id, setIsLoading, setIsPlaying])
 
-  // 7. Sync Play / Pause
+  // 7. Sync Play / Pause State
   useEffect(() => {
     if (activeEngine === 'yt') {
       if (ytPlayerRef.current) {
@@ -564,7 +609,7 @@ export function AudioEngine() {
         if (p !== undefined) {
           playPromiseRef.current = p
           p.catch((err) => {
-            log('HTML5 play deferred/waiting:', err?.name)
+            logAudio('HTML5 play deferred/waiting:', err?.name)
           })
         }
       }
