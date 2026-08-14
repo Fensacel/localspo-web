@@ -868,11 +868,11 @@ export function AudioEngine() {
         x-webkit-airplay="allow"
         style={{
           position: 'fixed',
-          top: 0,
-          left: 0,
-          width: '1px',
-          height: '1px',
-          opacity: 0.001,
+          top: '-9999px',
+          left: '-9999px',
+          width: '300px',
+          height: '40px',
+          opacity: 0.01,
           pointerEvents: 'none',
         }}
       />
