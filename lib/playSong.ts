@@ -4,7 +4,7 @@ import { scoreTrackMatch, normalizeString } from '@/lib/matcher'
 import { useLibraryStore } from '@/store/useLibraryStore'
 import { usePlayerStore } from '@/store/playerStore'
 import { usePlaylistStore } from '@/store/usePlaylistStore'
-import { preloadQueue } from '@/lib/queuePreloader'
+import { preloadQueue, isYouTubeVideoId } from '@/lib/queuePreloader'
 
 export function pickBestMatch(
   candidateSongs: Track[],
@@ -64,7 +64,11 @@ export async function playSong(
   const requestId = ++currentPlayRequestId
 
   const librarySong = useLibraryStore.getState().allSongs[song.id]
-  let videoId = song.resolvedVideoId || librarySong?.resolvedVideoId
+  const resolvedLibId = librarySong?.resolvedVideoId
+  let videoId =
+    (isYouTubeVideoId(song.resolvedVideoId) ? song.resolvedVideoId : undefined) ||
+    (isYouTubeVideoId(resolvedLibId) ? resolvedLibId : undefined) ||
+    (isYouTubeVideoId(song.videoId) ? song.videoId : undefined)
 
   const trackToPlay: Track = {
     id: song.id,
@@ -80,7 +84,11 @@ export async function playSong(
 
   const trackQueue: Track[] = (queue || [song]).map((s) => {
     const libEntry = useLibraryStore.getState().allSongs[s.id]
-    const resolvedId = s.resolvedVideoId || libEntry?.resolvedVideoId || (s.id === song.id ? videoId : undefined)
+    const resolvedId =
+      (isYouTubeVideoId(s.resolvedVideoId) ? s.resolvedVideoId : undefined) ||
+      (isYouTubeVideoId(libEntry?.resolvedVideoId) ? libEntry?.resolvedVideoId : undefined) ||
+      (isYouTubeVideoId(s.videoId) ? s.videoId : undefined) ||
+      (s.id === song.id ? videoId : undefined)
     return {
       id: s.id,
       videoId: resolvedId,

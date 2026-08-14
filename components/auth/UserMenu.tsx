@@ -44,17 +44,17 @@ export function UserMenu() {
       <div className="flex items-center gap-2">
         <button
           onClick={() => setImportModalOpen(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/30 rounded-full text-xs font-semibold transition-all"
+          className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/30 rounded-full text-xs font-semibold transition-all shrink-0"
         >
           <Download size={14} />
-          Import Playlist
+          <span>Import<span className="hidden sm:inline"> Playlist</span></span>
         </button>
         <button
           onClick={handleLogin}
-          className="flex items-center gap-2 px-4 py-2 bg-white text-black hover:bg-gray-200 rounded-full text-xs font-bold transition-all shadow-md"
+          className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 bg-white text-black hover:bg-gray-200 rounded-full text-xs font-bold transition-all shadow-md shrink-0 whitespace-nowrap"
         >
-          <LogIn size={15} />
-          Sign in
+          <LogIn size={14} />
+          <span>Sign in</span>
         </button>
         <ImportPlaylistModal
           isOpen={importModalOpen}

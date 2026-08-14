@@ -9,9 +9,9 @@ export function TopBar() {
   const router = useRouter()
 
   return (
-    <header className="sticky top-0 h-16 w-full z-30 bg-[#050505]/75 backdrop-blur-xl flex items-center justify-between px-6 mb-2">
-      {/* Navigation controls */}
-      <div className="flex items-center gap-2">
+    <header className="sticky top-0 h-14 sm:h-16 w-full z-30 bg-[#050505]/75 backdrop-blur-xl flex items-center justify-between px-3 sm:px-6 mb-2 gap-2 sm:gap-4">
+      {/* Navigation controls (Desktop only) */}
+      <div className="hidden sm:flex items-center gap-2 shrink-0">
         <button
           onClick={() => router.back()}
           className="w-9 h-9 rounded-full bg-white/5 hover:bg-white/15 border border-white/10 flex items-center justify-center text-white/70 hover:text-white transition-all shadow"
@@ -29,12 +29,12 @@ export function TopBar() {
       </div>
 
       {/* Search bar */}
-      <div className="flex-1 max-w-lg mx-6">
+      <div className="flex-1 max-w-lg sm:mx-6 min-w-0">
         <SearchBar />
       </div>
 
       {/* User menu */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 shrink-0">
         <UserMenu />
       </div>
     </header>

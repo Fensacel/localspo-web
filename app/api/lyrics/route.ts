@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { fetchLyrics } from '@/lib/lyrics/lrclib'
+import { fetchLyrics as fetchLrclib } from '@/lib/lyrics/lrclib'
+import { fetchNetEaseLyrics } from '@/lib/lyrics/netease'
+import { fetchLyricsOvh } from '@/lib/lyrics/lyricsovh'
+import type { Lyrics } from '@/types/lyrics'
 
 export async function GET(request: NextRequest) {
   const sp = request.nextUrl.searchParams
@@ -17,16 +20,51 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const lyrics = await fetchLyrics({ artist, track, album, duration })
+    // Query providers in parallel (NetEase Cloud Music & LRCLIB)
+    const [netEaseLyrics, lrclibLyrics] = await Promise.allSettled([
+      fetchNetEaseLyrics({ artist, track }),
+      fetchLrclib({ artist, track, album, duration }),
+    ])
 
-    if (!lyrics) {
+    const netEaseResult: Lyrics | null =
+      netEaseLyrics.status === 'fulfilled' ? netEaseLyrics.value : null
+    const lrclibResult: Lyrics | null =
+      lrclibLyrics.status === 'fulfilled' ? lrclibLyrics.value : null
+
+    // Choose best synced lyrics
+    // If NetEase has granular synced lines (e.g. phrase-by-phrase for K-Pop / Asian / Pop), prioritize it
+    let chosen: Lyrics | null = null
+
+    if (netEaseResult?.synced && netEaseResult.lines.length > 0) {
+      if (lrclibResult?.synced && lrclibResult.lines.length > 0) {
+        // Compare granularity: NetEase usually splits into individual phrases like Spotify Musixmatch
+        if (netEaseResult.lines.length >= lrclibResult.lines.length) {
+          chosen = netEaseResult
+        } else {
+          chosen = lrclibResult
+        }
+      } else {
+        chosen = netEaseResult
+      }
+    } else if (lrclibResult?.synced && lrclibResult.lines.length > 0) {
+      chosen = lrclibResult
+    } else if (lrclibResult?.plain) {
+      chosen = lrclibResult
+    } else if (netEaseResult?.plain) {
+      chosen = netEaseResult
+    } else {
+      // Fallback to Lyrics.ovh for plain text
+      chosen = await fetchLyricsOvh({ artist, track })
+    }
+
+    if (!chosen) {
       return NextResponse.json(
         { success: false, error: { code: 'LYRICS_NOT_FOUND', message: 'Lyrics not found.' } },
         { status: 404 }
       )
     }
 
-    return NextResponse.json({ success: true, data: lyrics })
+    return NextResponse.json({ success: true, data: chosen })
   } catch (err) {
     console.error('[/api/lyrics]', err)
     return NextResponse.json(

@@ -10,14 +10,24 @@ export function LyricsPanel() {
   const containerRef = useRef<HTMLDivElement>(null)
   const activeRef = useRef<HTMLButtonElement>(null)
 
+  const artistName =
+    typeof currentTrack?.artist === 'string'
+      ? currentTrack.artist
+      : currentTrack?.artist?.name ?? ''
+
+  const albumName =
+    typeof currentTrack?.album === 'string'
+      ? currentTrack.album
+      : currentTrack?.album?.name ?? ''
+
   const { data: lyricsData, isLoading } = useQuery({
-    queryKey: ['lyrics', currentTrack?.id],
+    queryKey: ['lyrics', currentTrack?.id, currentTrack?.title, artistName],
     queryFn: async ({ signal }) => {
       if (!currentTrack) return null
       const params = new URLSearchParams({
-        artist: currentTrack.artist?.name ?? '',
+        artist: artistName,
         track: currentTrack.title,
-        album: currentTrack.album?.name ?? '',
+        album: albumName,
         duration: String(currentTrack.duration ?? 0),
       })
       const res = await fetch(`/api/lyrics?${params}`, { signal })
@@ -25,7 +35,7 @@ export function LyricsPanel() {
       if (!json.success) return null
       return { ...json.data, trackId: currentTrack.id }
     },
-    enabled: !!currentTrack,
+    enabled: Boolean(currentTrack && (artistName || currentTrack.title)),
     staleTime: 30 * 60 * 1000,
   })
 
@@ -75,43 +85,40 @@ export function LyricsPanel() {
     )
   }
 
-  if (isSynced && lines.length > 0) {
-    return (
-      <div ref={containerRef} className="h-full overflow-y-auto px-8 py-12 space-y-6 scroll-smooth">
-        {lines.map((line, i) => {
-          const isActive = i === activeIdx
-          return (
-            <button
-              key={i}
-              ref={isActive ? activeRef : null}
-              onClick={() => seek(line.time)}
-              className={`block w-full text-left text-2xl md:text-3xl lg:text-4xl font-extrabold tracking-tight leading-snug transition-all duration-300 rounded-lg px-3 py-2 ${
-                isActive
-                  ? 'text-white scale-[1.02] origin-left opacity-100 drop-shadow-md'
-                  : 'text-gray-500/70 hover:text-gray-200 opacity-60 hover:opacity-90'
-              }`}
-            >
-              {line.text || ' '}
-            </button>
-          )
-        })}
-      </div>
-    )
-  }
-
-  if (plainText) {
-    return (
-      <div className="h-full overflow-y-auto p-8 max-w-4xl mx-auto">
-        <pre className="text-gray-300 text-xl font-bold leading-relaxed whitespace-pre-wrap font-sans">
-          {plainText}
-        </pre>
-      </div>
-    )
-  }
-
   return (
-    <div className="h-full flex items-center justify-center text-gray-500 text-sm">
-      Lyrics unavailable
+    <div className="relative h-full flex flex-col">
+      {/* Synced Lyrics List */}
+      {isSynced && lines.length > 0 ? (
+        <div ref={containerRef} className="h-full overflow-y-auto px-8 py-14 space-y-6 scroll-smooth custom-scrollbar">
+          {lines.map((line, i) => {
+            const isActive = i === activeIdx
+            return (
+              <button
+                key={i}
+                ref={isActive ? activeRef : null}
+                onClick={() => seek(line.time)}
+                className={`block w-full text-left text-2xl md:text-3xl lg:text-4xl font-extrabold tracking-tight leading-snug transition-all duration-300 rounded-lg px-3 py-2 ${
+                  isActive
+                    ? 'text-white scale-[1.02] origin-left opacity-100 drop-shadow-md'
+                    : 'text-gray-500/70 hover:text-gray-200 opacity-60 hover:opacity-90'
+                }`}
+              >
+                {line.text || ' '}
+              </button>
+            )
+          })}
+        </div>
+      ) : plainText ? (
+        <div className="h-full overflow-y-auto p-8 max-w-4xl mx-auto">
+          <pre className="text-gray-300 text-xl font-bold leading-relaxed whitespace-pre-wrap font-sans">
+            {plainText}
+          </pre>
+        </div>
+      ) : (
+        <div className="h-full flex items-center justify-center text-gray-500 text-sm">
+          Lyrics unavailable
+        </div>
+      )}
     </div>
   )
 }

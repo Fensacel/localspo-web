@@ -7,12 +7,18 @@ import { AppShell } from '@/components/layout/AppShell'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'LocalSpo',
-  description: 'Stream music, discover artists, and share what you love.',
+  title: 'LocalSpo — Free Music Player',
+  description: 'Stream music, discover artists, and share what you love without ads.',
+  manifest: '/manifest.webmanifest',
   icons: {
     icon: '/logo.png',
     shortcut: '/logo.png',
     apple: '/logo.png',
+  },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'LocalSpo',
   },
   openGraph: {
     title: 'LocalSpo',

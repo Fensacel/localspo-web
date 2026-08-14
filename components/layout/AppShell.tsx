@@ -10,7 +10,6 @@ import { QueuePanel } from '../player/QueuePanel'
 import { LyricsPanel } from '../lyrics/LyricsPanel'
 import { useUIStore } from '@/store/uiStore'
 import { usePlayerStore } from '@/store/playerStore'
-import { X } from 'lucide-react'
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { queueOpen, lyricsOpen, setLyricsOpen, sidebarOpen } = useUIStore()
@@ -85,14 +84,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <main className="flex-1 overflow-y-auto pb-[108px] px-3 sm:px-6 relative">
           {lyricsOpen ? (
             <div className="h-full w-full bg-[#131313]/90 backdrop-blur-2xl border border-white/10 rounded-2xl relative overflow-hidden flex flex-col shadow-2xl">
-              <button
-                onClick={() => setLyricsOpen(false)}
-                className="absolute top-4 right-4 z-20 p-2 rounded-full bg-black/40 hover:bg-black/60 text-gray-300 hover:text-white transition-colors"
-                aria-label="Close Lyrics"
-              >
-                <X size={20} />
-              </button>
-              <div className="flex-1 overflow-hidden pt-4">
+              <div className="flex-1 overflow-hidden">
                 <LyricsPanel />
               </div>
             </div>

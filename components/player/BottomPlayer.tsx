@@ -46,7 +46,7 @@ export function BottomPlayer() {
 
   if (!currentTrack) {
     return (
-      <footer className="fixed bottom-3 sm:bottom-4 left-3 sm:left-6 right-3 sm:right-6 h-16 sm:h-20 bg-[#141414]/80 backdrop-blur-2xl border border-white/10 rounded-full z-50 px-4 sm:px-6 flex items-center justify-between shadow-2xl">
+      <footer className="fixed bottom-3 sm:bottom-4 left-3 sm:left-6 right-3 sm:right-6 h-14 sm:h-20 bg-[#141414]/80 backdrop-blur-2xl border border-white/10 rounded-2xl sm:rounded-full z-50 px-4 sm:px-6 flex items-center justify-between shadow-2xl">
         <div className="flex items-center gap-3 text-xs text-[#8e9192]">
           <span className="w-2 h-2 rounded-full bg-white/20 animate-pulse" />
           <span className="truncate">LocalSpo — Select a track to play</span>
@@ -69,178 +69,264 @@ export function BottomPlayer() {
   }
 
   return (
-    <footer className="fixed bottom-3 sm:bottom-4 left-2 sm:left-6 right-2 sm:right-6 h-18 sm:h-20 bg-[#141414]/90 backdrop-blur-2xl border border-white/12 rounded-full z-50 px-3 sm:px-5 md:px-6 flex items-center justify-between shadow-2xl gap-2">
-      {/* Left: Track Info */}
-      <div className="flex items-center gap-2 sm:gap-3 w-32 sm:w-44 md:w-56 lg:w-64 min-w-0 shrink">
-        <Link href="/now-playing" className="relative group shrink-0">
-          {thumb ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={thumb}
-              alt={currentTrack.title}
-              width={48}
-              height={48}
-              className="w-10 h-10 sm:w-12 sm:h-12 rounded-lg object-cover shadow-lg border border-white/10 transition-transform group-hover:scale-105"
-              onError={(e: React.SyntheticEvent<HTMLImageElement>) => {
-                e.currentTarget.style.display = 'none'
-              }}
-            />
-          ) : (
-            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-lg bg-white/10 border border-white/10 flex items-center justify-center shrink-0">
-              <span className="text-white/60 text-xs font-bold">♪</span>
-            </div>
-          )}
-        </Link>
-        <div className="min-w-0 flex-1">
-          <Link
-            href="/now-playing"
-            className="block text-xs sm:text-sm font-semibold truncate hover:text-white text-white/90 transition-colors"
-          >
-            {currentTrack.title}
-          </Link>
-          <p className="text-[11px] sm:text-xs text-[#c4c7c8] truncate">
-            {currentTrack.artist?.name ?? 'Unknown Artist'}
-          </p>
-        </div>
-        <button
-          onClick={() => currentTrack && toggleLike(currentTrack)}
-          className={`p-1.5 sm:p-2 rounded-full hover:bg-white/10 transition-colors shrink-0 ${
-            currentTrack && isLiked(currentTrack.id)
-              ? 'text-red-500'
-              : 'text-gray-400 hover:text-white'
-          }`}
-          aria-label={
-            currentTrack && isLiked(currentTrack.id) ? 'Unlike' : 'Like'
-          }
-        >
-          <Heart
-            size={17}
-            fill={currentTrack && isLiked(currentTrack.id) ? 'currentColor' : 'none'}
-          />
-        </button>
-      </div>
-
-      {/* Center: Controls & Slider */}
-      <div className="flex flex-col items-center gap-1 flex-1 max-w-xl px-1 sm:px-4 min-w-0">
-        <div className="flex items-center gap-2 sm:gap-4">
-          <button
-            onClick={toggleShuffle}
-            className={`p-1 sm:p-1.5 rounded-full transition-colors ${
-              shuffle ? 'text-white font-bold bg-white/10' : 'text-gray-400 hover:text-white'
-            }`}
-            aria-label="Shuffle"
-          >
-            <Shuffle size={15} />
-          </button>
-
-          <button
-            onClick={previous}
-            className="p-1 text-gray-300 hover:text-white transition-colors"
-            aria-label="Previous"
-          >
-            <SkipBack size={18} fill="currentColor" />
-          </button>
-
-          <button
-            onClick={isPlaying ? pause : resume}
-            disabled={isLoading}
-            className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-lg shadow-white/10 disabled:opacity-50 shrink-0"
-            aria-label={isPlaying ? 'Pause' : 'Play'}
-          >
-            {isLoading ? (
-              <span className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
-            ) : isPlaying ? (
-              <Pause size={17} fill="currentColor" />
+    <footer className="fixed bottom-2.5 sm:bottom-4 left-2.5 sm:left-6 right-2.5 sm:right-6 bg-[#141414]/95 sm:bg-[#141414]/90 backdrop-blur-2xl border border-white/15 rounded-2xl sm:rounded-full z-50 shadow-2xl overflow-hidden">
+      {/* Mobile Layout (< sm) */}
+      <div className="flex sm:hidden flex-col">
+        <div className="flex items-center justify-between px-3 py-2 gap-2">
+          {/* Track Info */}
+          <Link href="/now-playing" className="flex items-center gap-2.5 min-w-0 flex-1">
+            {thumb ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={thumb}
+                alt={currentTrack.title}
+                className="w-10 h-10 rounded-lg object-cover shadow border border-white/10 shrink-0"
+              />
             ) : (
-              <Play size={17} fill="currentColor" className="ml-0.5" />
+              <div className="w-10 h-10 rounded-lg bg-white/10 border border-white/10 flex items-center justify-center shrink-0">
+                <span className="text-white/60 text-xs font-bold">♪</span>
+              </div>
             )}
-          </button>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-bold text-white truncate leading-tight">
+                {currentTrack.title}
+              </p>
+              <p className="text-[11px] text-[#a7a7a7] truncate leading-tight mt-0.5">
+                {currentTrack.artist?.name ?? 'Unknown Artist'}
+              </p>
+            </div>
+          </Link>
 
-          <button
-            onClick={next}
-            className="p-1 text-gray-300 hover:text-white transition-colors"
-            aria-label="Next"
-          >
-            <SkipForward size={18} fill="currentColor" />
-          </button>
+          {/* Mobile Right Controls */}
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              onClick={() => toggleLike(currentTrack)}
+              className={`p-2 rounded-full transition-colors ${
+                isLiked(currentTrack.id) ? 'text-red-500' : 'text-gray-400 hover:text-white'
+              }`}
+              aria-label={isLiked(currentTrack.id) ? 'Unlike' : 'Like'}
+            >
+              <Heart size={18} fill={isLiked(currentTrack.id) ? 'currentColor' : 'none'} />
+            </button>
 
-          <button
-            onClick={toggleRepeat}
-            className={`p-1 sm:p-1.5 rounded-full transition-colors ${
-              repeat !== 'off' ? 'text-white font-bold bg-white/10' : 'text-gray-400 hover:text-white'
-            }`}
-            aria-label={`Repeat: ${repeat}`}
-          >
-            <RepeatIcon size={15} />
-          </button>
+            <button
+              onClick={toggleLyrics}
+              className={`p-2 rounded-full transition-colors ${
+                lyricsOpen ? 'text-white bg-white/20' : 'text-gray-400 hover:text-white'
+              }`}
+              aria-label="Lyrics"
+            >
+              <Mic2 size={17} />
+            </button>
+
+            <button
+              onClick={isPlaying ? pause : resume}
+              disabled={isLoading}
+              className="w-9 h-9 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-md ml-1 shrink-0 disabled:opacity-60"
+              aria-label={isPlaying ? 'Pause' : 'Play'}
+            >
+              {isLoading ? (
+                <span className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
+              ) : isPlaying ? (
+                <Pause size={16} fill="currentColor" />
+              ) : (
+                <Play size={16} fill="currentColor" className="ml-0.5" />
+              )}
+            </button>
+
+            <button
+              onClick={next}
+              className="p-1.5 text-gray-300 hover:text-white transition-colors"
+              aria-label="Next"
+            >
+              <SkipForward size={18} fill="currentColor" />
+            </button>
+          </div>
         </div>
 
-        {/* Scrub Bar */}
-        <div className="flex items-center gap-2 sm:gap-3 w-full">
-          <span className="text-[10px] sm:text-[11px] font-mono text-[#8e9192] w-7 sm:w-8 text-right shrink-0">
-            {formatDuration(currentTime)}
-          </span>
-          <input
-            type="range"
-            min={0}
-            max={100}
-            value={progress}
-            onChange={handleSeek}
-            style={{
-              background: `linear-gradient(to right, #ffffff 0%, #ffffff ${progress}%, rgba(255, 255, 255, 0.2) ${progress}%, rgba(255, 255, 255, 0.2) 100%)`,
-            }}
-            className="flex-1 h-1 rounded-full cursor-pointer accent-white min-w-0"
-            aria-label="Seek"
+        {/* Slim Bottom Progress Bar for Mobile */}
+        <div className="w-full h-1 bg-white/10 relative">
+          <div
+            className="h-full bg-white transition-all duration-200"
+            style={{ width: `${progress}%` }}
           />
-          <span className="text-[10px] sm:text-[11px] font-mono text-[#8e9192] w-7 sm:w-8 shrink-0">
-            {formatDuration(duration)}
-          </span>
         </div>
       </div>
 
-      {/* Right: Audio options & volume */}
-      <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-        <button
-          onClick={toggleLyrics}
-          className={`p-1.5 sm:p-2 rounded-full transition-colors ${
-            lyricsOpen ? 'text-white bg-white/20' : 'text-gray-400 hover:text-white hover:bg-white/10'
-          }`}
-          aria-label="Lyrics"
-          title="Toggle Lyrics"
-        >
-          <Mic2 size={16} />
-        </button>
-        <button
-          onClick={toggleQueue}
-          className={`p-1.5 sm:p-2 rounded-full transition-colors ${
-            queueOpen ? 'text-white bg-white/20' : 'text-gray-400 hover:text-white hover:bg-white/10'
-          }`}
-          aria-label="Queue"
-          title="Toggle Queue"
-        >
-          <ListMusic size={16} />
-        </button>
-        <div className="hidden md:flex items-center gap-2 pl-2 border-l border-white/10">
+      {/* Desktop Layout (>= sm) */}
+      <div className="hidden sm:flex items-center justify-between h-20 px-5 md:px-6 gap-2">
+        {/* Left: Track Info */}
+        <div className="flex items-center gap-3 w-44 md:w-56 lg:w-64 min-w-0 shrink">
+          <Link href="/now-playing" className="relative group shrink-0">
+            {thumb ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={thumb}
+                alt={currentTrack.title}
+                width={48}
+                height={48}
+                className="w-12 h-12 rounded-lg object-cover shadow-lg border border-white/10 transition-transform group-hover:scale-105"
+                onError={(e: React.SyntheticEvent<HTMLImageElement>) => {
+                  e.currentTarget.style.display = 'none'
+                }}
+              />
+            ) : (
+              <div className="w-12 h-12 rounded-lg bg-white/10 border border-white/10 flex items-center justify-center shrink-0">
+                <span className="text-white/60 text-xs font-bold">♪</span>
+              </div>
+            )}
+          </Link>
+          <div className="min-w-0 flex-1">
+            <Link
+              href="/now-playing"
+              className="block text-sm font-semibold truncate hover:text-white text-white/90 transition-colors"
+            >
+              {currentTrack.title}
+            </Link>
+            <p className="text-xs text-[#c4c7c8] truncate">
+              {currentTrack.artist?.name ?? 'Unknown Artist'}
+            </p>
+          </div>
           <button
-            onClick={toggleMute}
-            className="p-1 text-gray-400 hover:text-white transition-colors"
-            aria-label={muted ? 'Unmute' : 'Mute'}
+            onClick={() => currentTrack && toggleLike(currentTrack)}
+            className={`p-2 rounded-full hover:bg-white/10 transition-colors shrink-0 ${
+              currentTrack && isLiked(currentTrack.id)
+                ? 'text-red-500'
+                : 'text-gray-400 hover:text-white'
+            }`}
+            aria-label={
+              currentTrack && isLiked(currentTrack.id) ? 'Unlike' : 'Like'
+            }
           >
-            {muted || volume === 0 ? <VolumeX size={16} /> : <Volume2 size={16} />}
+            <Heart
+              size={17}
+              fill={currentTrack && isLiked(currentTrack.id) ? 'currentColor' : 'none'}
+            />
           </button>
-          <input
-            type="range"
-            min={0}
-            max={1}
-            step={0.01}
-            value={muted ? 0 : volume}
-            onChange={handleVolume}
-            style={{
-              background: `linear-gradient(to right, #ffffff 0%, #ffffff ${(muted ? 0 : volume) * 100}%, rgba(255, 255, 255, 0.2) ${(muted ? 0 : volume) * 100}%, rgba(255, 255, 255, 0.2) 100%)`,
-            }}
-            className="w-16 lg:w-20 h-1 rounded-full cursor-pointer accent-white"
-            aria-label="Volume"
-          />
+        </div>
+
+        {/* Center: Controls & Slider */}
+        <div className="flex flex-col items-center gap-1 flex-1 max-w-xl px-4 min-w-0">
+          <div className="flex items-center gap-4">
+            <button
+              onClick={toggleShuffle}
+              className={`p-1.5 rounded-full transition-colors ${
+                shuffle ? 'text-white font-bold bg-white/10' : 'text-gray-400 hover:text-white'
+              }`}
+              aria-label="Shuffle"
+            >
+              <Shuffle size={15} />
+            </button>
+
+            <button
+              onClick={previous}
+              className="p-1 text-gray-300 hover:text-white transition-colors"
+              aria-label="Previous"
+            >
+              <SkipBack size={18} fill="currentColor" />
+            </button>
+
+            <button
+              onClick={isPlaying ? pause : resume}
+              disabled={isLoading}
+              className="w-10 h-10 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-lg shadow-white/10 disabled:opacity-50 shrink-0"
+              aria-label={isPlaying ? 'Pause' : 'Play'}
+            >
+              {isLoading ? (
+                <span className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
+              ) : isPlaying ? (
+                <Pause size={17} fill="currentColor" />
+              ) : (
+                <Play size={17} fill="currentColor" className="ml-0.5" />
+              )}
+            </button>
+
+            <button
+              onClick={next}
+              className="p-1 text-gray-300 hover:text-white transition-colors"
+              aria-label="Next"
+            >
+              <SkipForward size={18} fill="currentColor" />
+            </button>
+
+            <button
+              onClick={toggleRepeat}
+              className={`p-1.5 rounded-full transition-colors ${
+                repeat !== 'off' ? 'text-white font-bold bg-white/10' : 'text-gray-400 hover:text-white'
+              }`}
+              aria-label={`Repeat: ${repeat}`}
+            >
+              <RepeatIcon size={15} />
+            </button>
+          </div>
+
+          {/* Scrub Bar */}
+          <div className="flex items-center gap-3 w-full">
+            <span className="text-[11px] font-mono text-[#8e9192] w-8 text-right shrink-0">
+              {formatDuration(currentTime)}
+            </span>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={progress}
+              onChange={handleSeek}
+              style={{
+                background: `linear-gradient(to right, #ffffff 0%, #ffffff ${progress}%, rgba(255, 255, 255, 0.2) ${progress}%, rgba(255, 255, 255, 0.2) 100%)`,
+              }}
+              className="flex-1 h-1 rounded-full cursor-pointer accent-white min-w-0"
+              aria-label="Seek"
+            />
+            <span className="text-[11px] font-mono text-[#8e9192] w-8 shrink-0">
+              {formatDuration(duration)}
+            </span>
+          </div>
+        </div>
+
+        {/* Right: Audio options & volume */}
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={toggleLyrics}
+            className={`p-2 rounded-full transition-colors ${
+              lyricsOpen ? 'text-white bg-white/20' : 'text-gray-400 hover:text-white hover:bg-white/10'
+            }`}
+            aria-label="Lyrics"
+            title="Toggle Lyrics"
+          >
+            <Mic2 size={16} />
+          </button>
+          <button
+            onClick={toggleQueue}
+            className={`p-2 rounded-full transition-colors ${
+              queueOpen ? 'text-white bg-white/20' : 'text-gray-400 hover:text-white hover:bg-white/10'
+            }`}
+            aria-label="Queue"
+            title="Toggle Queue"
+          >
+            <ListMusic size={16} />
+          </button>
+          <div className="hidden md:flex items-center gap-2 pl-2 border-l border-white/10">
+            <button
+              onClick={toggleMute}
+              className="p-1 text-gray-400 hover:text-white transition-colors"
+              aria-label={muted ? 'Unmute' : 'Mute'}
+            >
+              {muted || volume === 0 ? <VolumeX size={16} /> : <Volume2 size={16} />}
+            </button>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={muted ? 0 : volume}
+              onChange={handleVolume}
+              style={{
+                background: `linear-gradient(to right, #ffffff 0%, #ffffff ${(muted ? 0 : volume) * 100}%, rgba(255, 255, 255, 0.2) ${(muted ? 0 : volume) * 100}%, rgba(255, 255, 255, 0.2) 100%)`,
+              }}
+              className="w-16 lg:w-20 h-1 rounded-full cursor-pointer accent-white"
+              aria-label="Volume"
+            />
+          </div>
         </div>
       </div>
     </footer>

@@ -8,6 +8,10 @@ import { usePlaylistStore } from '@/store/usePlaylistStore'
 const preloadingSet = new Set<string>()
 const preloadedAudioStreams = new Set<string>()
 
+export function isYouTubeVideoId(id?: string | null): boolean {
+  return typeof id === 'string' && /^[A-Za-z0-9_-]{11}$/.test(id)
+}
+
 function getCachedWarmedStreams(): Set<string> {
   if (typeof window === 'undefined') return new Set()
   try {
@@ -29,15 +33,14 @@ function saveWarmedStream(videoId: string) {
 
 /**
  * Pre-fetches and warms up the audio stream in browser memory/cache for zero-latency playback.
- * If the song was already warmed up/cached in this session, it skips duplicate requests.
+ * Strictly verifies 11-char YouTube video ID to prevent 400 errors with Spotify IDs.
  */
 export function preloadAudioStream(videoId: string) {
-  if (!videoId || preloadedAudioStreams.has(videoId) || getCachedWarmedStreams().has(videoId)) return
+  if (!videoId || !isYouTubeVideoId(videoId) || preloadedAudioStreams.has(videoId) || getCachedWarmedStreams().has(videoId)) return
   preloadedAudioStreams.add(videoId)
   saveWarmedStream(videoId)
 
   try {
-    // Warm up the stream in the background (512KB initial stream chunk, cached in browser)
     fetch(`/api/stream/${videoId}`, {
       headers: { Range: 'bytes=0-524288' },
     }).catch(() => {})
@@ -45,8 +48,7 @@ export function preloadAudioStream(videoId: string) {
 }
 
 /**
- * Resolves a single song's YouTube video ID in the background, stores it permanently,
- * and warms up its audio stream.
+ * Resolves a single song's YouTube video ID in the background and stores it permanently.
  */
 export async function preloadSingleSong(
   song: { id: string; title: string; artist: string | { name?: string }; duration?: number; durationMs?: number; videoId?: string; resolvedVideoId?: string }
@@ -54,10 +56,11 @@ export async function preloadSingleSong(
   const songId = song.id
   if (!songId) return null
 
+  const libResolved = useLibraryStore.getState().allSongs[songId]?.resolvedVideoId
   const existingVideoId =
-    song.videoId ||
-    song.resolvedVideoId ||
-    useLibraryStore.getState().allSongs[songId]?.resolvedVideoId
+    (isYouTubeVideoId(song.resolvedVideoId) ? song.resolvedVideoId : null) ||
+    (isYouTubeVideoId(libResolved) ? libResolved : null) ||
+    (isYouTubeVideoId(song.videoId) ? song.videoId : null)
 
   if (existingVideoId) {
     preloadAudioStream(existingVideoId)
@@ -89,7 +92,7 @@ export async function preloadSingleSong(
     })
 
     const bestVideoId = matched?.videoId || matched?.id
-    if (bestVideoId) {
+    if (bestVideoId && isYouTubeVideoId(bestVideoId)) {
       useLibraryStore.getState().updateResolvedVideoId(songId, bestVideoId)
       usePlayerStore.getState().updateQueueSongVideoId(songId, bestVideoId)
       usePlaylistStore.getState().updateSongResolvedVideoId?.(songId, bestVideoId)
@@ -114,7 +117,6 @@ export async function preloadQueue(
 ) {
   if (!tracks || tracks.length === 0) return
 
-  // Prioritize songs right after the current playing index, followed by the rest
   const upcoming = tracks.slice(startIndex)
   const previous = tracks.slice(0, startIndex)
   const prioritizedQueue = [...upcoming, ...previous]
@@ -142,7 +144,7 @@ export async function preloadQueue(
         resolvedVideoId: 'resolvedVideoId' in track ? track.resolvedVideoId : undefined,
       })
 
-      if (videoId) {
+      if (videoId && isYouTubeVideoId(videoId)) {
         preloadAudioStream(videoId)
       }
     }

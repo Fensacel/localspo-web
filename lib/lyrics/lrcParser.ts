@@ -41,8 +41,14 @@ export function parseLRC(lrc: string): LyricLine[] {
 
     // Text is everything after the last timestamp tag
     const text = line.slice(lastIndex).trim()
-    // Skip metadata lines like [ar:Artist] [ti:Title]
-    if (!text || /^[a-z]{2}:/.test(text.toLowerCase())) continue
+    // Skip metadata lines like [ar:Artist] [ti:Title] and NetEase credit headers (作词/作曲/编曲/Written by/Composed by)
+    if (
+      !text ||
+      /^[a-z]{2}:/i.test(text) ||
+      /^(?:作词|作曲|编曲|制作|监制|混音|母带|written by|lyrics by|composed by|produced by|arranged by)\s*[:：]/i.test(text)
+    ) {
+      continue
+    }
 
     for (const time of timestamps) {
       lines.push({ time, text })

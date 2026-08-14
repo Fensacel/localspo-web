@@ -57,7 +57,7 @@ export function HomePage() {
       id: pl.id,
       title: pl.name,
       coverUrl: pl.coverUrl,
-      subtitle: `${pl.songs.length} songs`,
+      subtitle: `${pl.songs.length} tracks`,
       isPlaylist: true,
       track: null,
     })),
@@ -78,7 +78,7 @@ export function HomePage() {
           id: spl.id,
           title: spl.title,
           coverUrl: spl.cover_url || spl.coverUrl,
-          subtitle: `${count} songs`,
+          subtitle: `${count} tracks`,
           isPlaylist: true,
           track: null,
         }
@@ -126,11 +126,11 @@ export function HomePage() {
                 }}
                 className={`flex items-center gap-3 p-2.5 rounded-xl cursor-pointer group transition-all duration-300 shadow-md ${
                   isPlayingThis
-                    ? 'bg-blue-950/30 border border-blue-500/40 shadow-blue-500/10'
+                    ? 'bg-white/[0.08] border border-[#5883ad]/50 shadow-lg shadow-black/40'
                     : 'bg-[#141414]/70 hover:bg-[#1f1f1f] border border-white/10'
                 }`}
               >
-                <div className="relative w-12 h-12 rounded-lg overflow-hidden shrink-0">
+                <div className="relative w-12 h-12 rounded-lg overflow-hidden shrink-0 bg-[#242424]">
                   {item.coverUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
@@ -145,21 +145,21 @@ export function HomePage() {
                   )}
                   {isPlayingThis && (
                     <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                      <Volume2 size={16} className="text-blue-400 animate-pulse" />
+                      <Volume2 size={16} className="text-[#38bdf8] animate-pulse" />
                     </div>
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
                   <p
                     className={`text-xs font-bold truncate transition-colors ${
-                      isPlayingThis ? 'text-blue-400' : 'text-white group-hover:text-blue-400'
+                      isPlayingThis ? 'text-white' : 'text-gray-200 group-hover:text-white'
                     }`}
                   >
                     {item.title}
                   </p>
-                  <p className="text-[11px] text-gray-400 truncate mt-0.5 flex items-center gap-1.5">
+                  <p className="text-xs font-mono text-[#5883ad] tracking-tight truncate mt-0.5 flex items-center gap-1.5">
                     {isPlayingThis && (
-                      <span className="text-[10px] font-semibold text-blue-400 uppercase tracking-wider">
+                      <span className="text-[10px] font-semibold text-[#38bdf8] uppercase tracking-wider">
                         Playing •
                       </span>
                     )}
