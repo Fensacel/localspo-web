@@ -1,12 +1,12 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { usePlayerStore } from '@/store/playerStore'
 import { useLibraryStore } from '@/store/useLibraryStore'
 import { pickBestMatch } from '@/lib/playSong'
 import { createClient } from '@/lib/supabase/client'
 import type { Track } from '@/types/track'
-import { preloadAudioStream, preloadSingleSong, preloadQueue, isYouTubeVideoId } from '@/lib/queuePreloader'
+import { preloadAudioStream, preloadSingleSong, isYouTubeVideoId } from '@/lib/queuePreloader'
 
 declare global {
   interface Window {
@@ -158,7 +158,7 @@ export function AudioEngine() {
                 isYtReadyRef.current = true
                 log('YouTube IFrame Engine Bridge Ready')
                 const target = currentTargetVideoIdRef.current || usePlayerStore.getState().currentTrack?.videoId
-                if (usePlayerStore.getState().isPlaying && target) {
+                if (usePlayerStore.getState().isPlaying && target && activeEngine === 'yt') {
                   ytPlayerRef.current.loadVideoById(target)
                 }
               },
@@ -206,7 +206,7 @@ export function AudioEngine() {
     } else {
       window.onYouTubeIframeAPIReady = initYt
     }
-  }, [next, setDuration, setIsLoading, setIsPlaying])
+  }, [next, setDuration, setIsLoading, setIsPlaying, activeEngine])
 
   // 4. Setup Native HTML5 Audio Element & Background Lifecycle Handlers
   useEffect(() => {
@@ -255,15 +255,32 @@ export function AudioEngine() {
       }
     }
 
+    function onCanPlay() {
+      if (activeEngine === 'html5') {
+        setIsLoading(false)
+        if (usePlayerStore.getState().isPlaying && audio.paused) {
+          audio.play().catch(() => {})
+        }
+      }
+    }
+
     function onPlay() {
       if (activeEngine === 'html5') {
         setIsPlaying(true)
         setIsLoading(false)
+        if ('mediaSession' in navigator) {
+          try { navigator.mediaSession.playbackState = 'playing' } catch {}
+        }
       }
     }
 
     function onPause() {
-      if (activeEngine === 'html5') setIsPlaying(false)
+      if (activeEngine === 'html5') {
+        setIsPlaying(false)
+        if ('mediaSession' in navigator) {
+          try { navigator.mediaSession.playbackState = 'paused' } catch {}
+        }
+      }
     }
 
     function onEnded() {
@@ -293,13 +310,14 @@ export function AudioEngine() {
     function onError() {
       if (activeEngine === 'html5') {
         const err = audio.error
-        log('HTML5 Audio error (falling back to YouTube Bridge):', err?.code, err?.message)
-        const vid = currentTargetVideoIdRef.current || currentTrack?.videoId
-        if (vid) {
-          setActiveEngine('yt')
-          audio.pause()
-          audio.src = ''
-          if (ytPlayerRef.current) {
+        log('HTML5 Audio error:', err?.code, err?.message)
+        // Only fallback to YT if permanent source error
+        if (err?.code === 4) {
+          const vid = currentTargetVideoIdRef.current || currentTrack?.videoId
+          if (vid && ytPlayerRef.current) {
+            setActiveEngine('yt')
+            audio.pause()
+            audio.src = ''
             try {
               ytPlayerRef.current.loadVideoById(vid)
               ytPlayerRef.current.playVideo()
@@ -309,13 +327,13 @@ export function AudioEngine() {
           }
         } else {
           setIsLoading(false)
-          setIsPlaying(false)
         }
       }
     }
 
     audio.addEventListener('timeupdate', onTimeUpdate)
     audio.addEventListener('loadedmetadata', onLoadedMetadata)
+    audio.addEventListener('canplay', onCanPlay)
     audio.addEventListener('play', onPlay)
     audio.addEventListener('pause', onPause)
     audio.addEventListener('ended', onEnded)
@@ -326,6 +344,7 @@ export function AudioEngine() {
     return () => {
       audio.removeEventListener('timeupdate', onTimeUpdate)
       audio.removeEventListener('loadedmetadata', onLoadedMetadata)
+      audio.removeEventListener('canplay', onCanPlay)
       audio.removeEventListener('play', onPlay)
       audio.removeEventListener('pause', onPause)
       audio.removeEventListener('ended', onEnded)
@@ -372,7 +391,7 @@ export function AudioEngine() {
     })
   }
 
-  // 5. YouTube Timer for progress tracking
+  // 5. YouTube Timer for progress tracking (only when activeEngine === 'yt')
   useEffect(() => {
     if (activeEngine !== 'yt') return
 
@@ -483,23 +502,7 @@ export function AudioEngine() {
       currentTargetVideoIdRef.current = targetVideoId
       hasLoggedHistoryRef.current = false
 
-      // Try YouTube bridge first if activeEngine is 'yt', otherwise HTML5
-      if (activeEngine === 'yt') {
-        if (audio) {
-          try { audio.pause() } catch {}
-        }
-        if (ytPlayerRef.current) {
-          try {
-            ytPlayerRef.current.loadVideoById(targetVideoId)
-            ytPlayerRef.current.playVideo()
-          } catch (e) {
-            log('YT load error:', e)
-          }
-        }
-      } else if (audio) {
-        if (ytPlayerRef.current?.pauseVideo) {
-          try { ytPlayerRef.current.pauseVideo() } catch {}
-        }
+      if (audio) {
         const streamUrl = `/api/stream/${targetVideoId}`
         audio.src = streamUrl
         audio.load()
@@ -510,14 +513,7 @@ export function AudioEngine() {
           if (p !== undefined) {
             playPromiseRef.current = p
             p.catch((err) => {
-              if (err?.name !== 'AbortError') {
-                log('HTML5 play failed, switching to YouTube Bridge:', err)
-                setActiveEngine('yt')
-                if (ytPlayerRef.current && targetVideoId) {
-                  ytPlayerRef.current.loadVideoById(targetVideoId)
-                  ytPlayerRef.current.playVideo()
-                }
-              }
+              log('HTML5 play deferred:', err?.name)
             })
           }
         }
@@ -542,7 +538,7 @@ export function AudioEngine() {
     loadAudioTrack()
 
     return () => clearTimeout(safetyTimer)
-  }, [currentTrack?.id, activeEngine, setIsLoading, setIsPlaying])
+  }, [currentTrack?.id, setIsLoading, setIsPlaying])
 
   // 7. Sync Play / Pause
   useEffect(() => {
@@ -632,22 +628,12 @@ export function AudioEngine() {
 
   return (
     <>
-      {/* Physical HTML5 Audio with playsInline & preload for mobile lock screen & background playback */}
+      {/* Clean persistent native HTML5 Audio element for background playback */}
       <audio
         ref={audioRef}
         playsInline
         preload="auto"
-        style={{
-          position: 'fixed',
-          bottom: 0,
-          left: 0,
-          width: '1px',
-          height: '1px',
-          opacity: 0.01,
-          pointerEvents: 'none',
-          zIndex: -1,
-        }}
-        aria-hidden="true"
+        className="hidden"
       />
 
       <div
