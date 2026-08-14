@@ -1,11 +1,14 @@
 /**
- * Stream Resolver
- * Resolves a YouTube videoId to a playable audio stream URL.
- *
- * Edge & Cloudflare Workers compatible:
- * Uses YouTube's ANDROID_VR Innertube client — 100% reliable, zero native binary dependencies,
- * unencrypted direct audio URLs with full range-request streaming support.
+ * YouTube Stream Resolver for LocalSpo Web.
+ * Supports direct audio extraction with pure JS fallbacks for Cloudflare Workers & Node.
  */
+
+export interface StreamInfo {
+  url: string
+  mimeType: string
+  quality: string
+  bitrate?: number
+}
 
 const isDev = process.env.NODE_ENV === 'development'
 
@@ -13,35 +16,33 @@ function log(...args: unknown[]) {
   if (isDev) console.log('[StreamResolver]', ...args)
 }
 
-export interface StreamInfo {
-  url: string
-  mimeType?: string
-  quality?: string
-  expiresAt?: number
-}
-
-// In-memory cache with TTL (YouTube stream URLs are valid for up to 4 hours)
-const streamCache = new Map<string, { info: StreamInfo; cachedAt: number }>()
-const CACHE_TTL_MS = 3 * 60 * 60 * 1000 // 3 hours
+// In-memory cache for resolved stream URLs (TTL: 3 hours)
+const cache = new Map<string, { stream: StreamInfo; expiresAt: number }>()
 
 function getCached(videoId: string): StreamInfo | null {
-  const entry = streamCache.get(videoId)
+  const entry = cache.get(videoId)
   if (!entry) return null
-  if (Date.now() - entry.cachedAt > CACHE_TTL_MS) {
-    streamCache.delete(videoId)
+  if (Date.now() > entry.expiresAt) {
+    cache.delete(videoId)
     return null
   }
-  return entry.info
+  return entry.stream
 }
 
-function setCache(videoId: string, info: StreamInfo) {
-  streamCache.set(videoId, { info, cachedAt: Date.now() })
+function setCache(videoId: string, stream: StreamInfo) {
+  cache.set(videoId, {
+    stream,
+    expiresAt: Date.now() + 3 * 60 * 60 * 1000,
+  })
 }
 
 export function evictCache(videoId: string) {
-  streamCache.delete(videoId)
+  cache.delete(videoId)
 }
 
+/**
+ * Resolves YouTube videoId to a direct audio stream URL.
+ */
 export async function resolveStream(videoId: string): Promise<StreamInfo | null> {
   if (!videoId || !/^[A-Za-z0-9_-]{11}$/.test(videoId)) {
     log('Invalid videoId:', videoId)
@@ -57,15 +58,15 @@ export async function resolveStream(videoId: string): Promise<StreamInfo | null>
 
   log('Resolving stream for:', videoId)
 
-  // 2. Try local python yt_dlp first (handles signed URLs & bypasses YouTube bot detection)
-  const resultYtDlp = await resolveWithLocalYtDlp(videoId)
-  if (resultYtDlp) {
-    setCache(videoId, resultYtDlp)
-    log('Stream resolved via local yt-dlp:', videoId)
-    return resultYtDlp
+  // 2. Node / Local environment fast extractor (yt-dlp -g)
+  const directResult = await resolveWithLocalExtractor(videoId)
+  if (directResult) {
+    setCache(videoId, directResult)
+    log('Stream resolved via local extractor:', videoId)
+    return directResult
   }
 
-  // 3. Fallback: Fast ANDROID_VR Innertube client
+  // 3. Cloudflare Workers / Pure JS Innertube Client (ANDROID_VR)
   const resultVr = await resolveWithAndroidVr(videoId)
   if (resultVr) {
     setCache(videoId, resultVr)
@@ -73,7 +74,7 @@ export async function resolveStream(videoId: string): Promise<StreamInfo | null>
     return resultVr
   }
 
-  // 4. Fallback: TVHTML5 embedded client
+  // 4. Fallback pure JS Innertube Client (TVHTML5)
   const resultTv = await resolveWithTvHtml5(videoId)
   if (resultTv) {
     setCache(videoId, resultTv)
@@ -86,7 +87,41 @@ export async function resolveStream(videoId: string): Promise<StreamInfo | null>
 }
 
 /**
- * Ultra-reliable ANDROID_VR Innertube Client (Zero botguard, unencrypted audio formats)
+ * Fast direct URL resolver using local yt-dlp binary (if running in Node environment)
+ */
+async function resolveWithLocalExtractor(videoId: string): Promise<StreamInfo | null> {
+  try {
+    // Dynamic import to prevent bundler errors on Cloudflare Workers
+    const cp = await import('child_process').catch(() => null)
+    if (!cp || !cp.exec) return null
+
+    return new Promise((resolve) => {
+      const cmd = `python -m yt_dlp -g -f "140/bestaudio[ext=m4a]/251/bestaudio" "https://www.youtube.com/watch?v=${videoId}"`
+      cp.exec(cmd, { timeout: 8000 }, (err, stdout) => {
+        if (err || !stdout) {
+          resolve(null)
+          return
+        }
+        const url = stdout.trim().split('\n')[0]?.trim()
+        if (url && url.startsWith('http')) {
+          const isM4a = url.includes('audio%2Fmp4') || url.includes('itag=140')
+          resolve({
+            url,
+            mimeType: isM4a ? 'audio/mp4' : 'audio/webm',
+            quality: '128kbps',
+          })
+        } else {
+          resolve(null)
+        }
+      })
+    })
+  } catch {
+    return null
+  }
+}
+
+/**
+ * ANDROID_VR Innertube Client (Pure JS HTTP fetch for Cloudflare Workers)
  */
 async function resolveWithAndroidVr(videoId: string): Promise<StreamInfo | null> {
   try {
@@ -98,7 +133,8 @@ async function resolveWithAndroidVr(videoId: string): Promise<StreamInfo | null>
       signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
-        'User-Agent': 'Mozilla/5.0 (Linux; Android 12; Quest 3) AppleWebKit/537.36 (KHTML, like Gecko) OculusBrowser/34.0.0.32.72.585521404 SamsungBrowser/4.0 Chrome/122.0.6261.119 Mobile VR Safari/537.36',
+        'User-Agent':
+          'Mozilla/5.0 (Linux; Android 12; Quest 3) AppleWebKit/537.36 (KHTML, like Gecko) OculusBrowser/34.0.0.32.72.585521404 SamsungBrowser/4.0 Chrome/122.0.6261.119 Mobile VR Safari/537.36',
         'X-YouTube-Client-Name': '55',
         'X-YouTube-Client-Version': '1.61.48',
       },
@@ -122,10 +158,7 @@ async function resolveWithAndroidVr(videoId: string): Promise<StreamInfo | null>
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const json: any = await res.json()
-    if (json.playabilityStatus?.status !== 'OK') {
-      log('Playability not OK:', json.playabilityStatus?.status)
-      return null
-    }
+    if (json.playabilityStatus?.status !== 'OK') return null
 
     const adaptiveFormats = json.streamingData?.adaptiveFormats || []
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -134,23 +167,15 @@ async function resolveWithAndroidVr(videoId: string): Promise<StreamInfo | null>
     )
 
     if (audioFormats.length === 0) return null
-
-    // Prefer audio/mp4 (AAC) — universally supported by all browsers including Safari/iOS.
-    // audio/webm (opus) is NOT supported by Safari, causing MEDIA_ERR_SRC_NOT_SUPPORTED.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const mp4Formats = audioFormats.filter((f: any) => f.mimeType?.includes('audio/mp4'))
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const webmFormats = audioFormats.filter((f: any) => !f.mimeType?.includes('audio/mp4'))
-
-    // Sort each group by bitrate descending, pick best mp4 first, fall back to webm
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const sortByBitrate = (arr: any[]) => arr.sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))
-    const best = sortByBitrate(mp4Formats)[0] || sortByBitrate(webmFormats)[0]
+    audioFormats.sort((a: any, b: any) => (b.bitrate || 0) - (a.bitrate || 0))
+    const best = audioFormats[0]
 
     return {
       url: best.url,
-      mimeType: best.mimeType?.split(';')[0] || 'audio/mp4',
+      mimeType: best.mimeType || 'audio/webm',
       quality: best.bitrate ? `${Math.round(best.bitrate / 1000)}kbps` : '128kbps',
+      bitrate: best.bitrate,
     }
   } catch (err) {
     log('ANDROID_VR resolver error:', err)
@@ -159,21 +184,20 @@ async function resolveWithAndroidVr(videoId: string): Promise<StreamInfo | null>
 }
 
 /**
- * TVHTML5_SIMPLY_EMBEDDED_PLAYER — secondary fallback when ANDROID_VR is blocked.
- * Uses a different client signature that YouTube treats as a TV embed, often
- * bypassing region/bot blocks that hit the Android VR client.
+ * TVHTML5 embedded client (Pure JS HTTP fetch for Cloudflare Workers)
  */
 async function resolveWithTvHtml5(videoId: string): Promise<StreamInfo | null> {
   try {
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 8000)
+    const timeout = setTimeout(() => controller.abort(), 6000)
 
     const res = await fetch('https://www.youtube.com/youtubei/v1/player?prettyPrint=false', {
       method: 'POST',
       signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
-        'User-Agent': 'Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/538.1 (KHTML, like Gecko) Version/6.0 TV Safari/538.1',
+        'User-Agent':
+          'Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/538.1 (KHTML, like Gecko) Version/6.0 TV Safari/538.1',
         'X-YouTube-Client-Name': '85',
         'X-YouTube-Client-Version': '2.0',
         'Origin': 'https://www.youtube.com',
@@ -199,10 +223,7 @@ async function resolveWithTvHtml5(videoId: string): Promise<StreamInfo | null> {
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const json: any = await res.json()
-    if (json.playabilityStatus?.status !== 'OK') {
-      log('TVHTML5 playability not OK:', json.playabilityStatus?.status)
-      return null
-    }
+    if (json.playabilityStatus?.status !== 'OK') return null
 
     const adaptiveFormats = json.streamingData?.adaptiveFormats || []
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -212,63 +233,17 @@ async function resolveWithTvHtml5(videoId: string): Promise<StreamInfo | null> {
     if (audioFormats.length === 0) return null
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const mp4Formats = audioFormats.filter((f: any) => f.mimeType?.includes('audio/mp4'))
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const webmFormats = audioFormats.filter((f: any) => !f.mimeType?.includes('audio/mp4'))
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const sortByBitrate = (arr: any[]) => arr.sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))
-    const best = sortByBitrate(mp4Formats)[0] || sortByBitrate(webmFormats)[0]
+    audioFormats.sort((a: any, b: any) => (b.bitrate || 0) - (a.bitrate || 0))
+    const best = audioFormats[0]
 
     return {
       url: best.url,
-      mimeType: best.mimeType?.split(';')[0] || 'audio/mp4',
+      mimeType: best.mimeType || 'audio/webm',
       quality: best.bitrate ? `${Math.round(best.bitrate / 1000)}kbps` : '128kbps',
+      bitrate: best.bitrate,
     }
   } catch (err) {
     log('TVHTML5 resolver error:', err)
-    return null
-  }
-}
-
-/**
- * Local Node.js environment fallback only (bypassed in Cloudflare Workers / Edge)
- */
-async function resolveWithLocalYtDlp(videoId: string): Promise<StreamInfo | null> {
-  try {
-    const cp = await import('child_process').catch(() => null)
-    if (!cp || typeof cp.spawn !== 'function') return null
-
-    return new Promise((resolve) => {
-      const url = `https://www.youtube.com/watch?v=${videoId}`
-      const proc = cp.spawn(
-        'python',
-        ['-m', 'yt_dlp', '-f', 'bestaudio', '--no-playlist', '--no-warnings', '-j', '--quiet', url],
-        { shell: process.platform === 'win32' }
-      )
-
-      let stdout = ''
-      proc.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString() })
-      proc.on('error', () => resolve(null))
-      proc.on('close', (code: number) => {
-        if (code !== 0) return resolve(null)
-        try {
-          const lines = stdout.trim().split('\n').filter(Boolean)
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const info: any = JSON.parse(lines[lines.length - 1])
-          const streamUrl: string | undefined = info?.url
-          if (!streamUrl) return resolve(null)
-
-          resolve({
-            url: streamUrl,
-            mimeType: info?.ext === 'm4a' ? 'audio/mp4' : 'audio/webm',
-            quality: info?.abr ? `${info.abr}kbps` : 'best',
-          })
-        } catch {
-          resolve(null)
-        }
-      })
-    })
-  } catch {
     return null
   }
 }

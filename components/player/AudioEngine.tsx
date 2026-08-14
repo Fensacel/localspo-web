@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { usePlayerStore } from '@/store/playerStore'
 import { useLibraryStore } from '@/store/useLibraryStore'
 import { pickBestMatch } from '@/lib/playSong'
@@ -55,6 +55,9 @@ export function AudioEngine() {
   // Used to guard the play/pause sync effect against calling play()
   // when the src hasn't been set yet or belongs to a previous track.
   const currentVideoIdRef = useRef<string | null>(null)
+
+  // Current active playback engine: 'html5' (standard stream) or 'yt' (YouTube IFrame bridge)
+  const [activeEngine, setActiveEngine] = useState<'html5' | 'yt'>('html5')
 
   const {
     currentTrack,
@@ -329,10 +332,11 @@ export function AudioEngine() {
 
     function onPause() {
       // KEY FIX: If we are in the middle of a track switch (isSwitchingRef=true),
-      // this pause was triggered by our own audio.pause() call in the STOP phase.
-      // Do NOT update the store — we still want to play the next track.
-      if (isSwitchingRef.current) {
-        logAudio('pause during track switch — ignoring store update')
+      // or if an audio error occurred and we are falling back to YouTube IFrame player,
+      // this pause was triggered by HTML5 audio failure, NOT the user.
+      // Do NOT update the store to false!
+      if (isSwitchingRef.current || audio.error) {
+        logAudio('pause during track switch or audio error — ignoring store update')
         return
       }
       logAudio('paused (user/browser initiated)')
@@ -374,7 +378,23 @@ export function AudioEngine() {
       if (isSwitchingRef.current) return
       const err = audio.error
       const track = usePlayerStore.getState().currentTrack
-      console.error('[AUDIO] error event:', track?.title, 'code:', err?.code, err?.message)
+      logAudio('HTML5 audio stream unavailable for:', track?.title, 'code:', err?.code, 'Switching to YouTube player bridge')
+
+      const vid = currentVideoIdRef.current || track?.videoId
+      if (vid && isYtReadyRef.current && ytPlayerRef.current) {
+        logAudio('Activating YouTube IFrame player fallback for videoId:', vid)
+        setActiveEngine('yt')
+        try {
+          ytPlayerRef.current.loadVideoById(vid)
+          ytPlayerRef.current.playVideo()
+          setIsLoading(false)
+          setIsPlaying(true)
+          return
+        } catch (ytErr) {
+          logAudio('YT fallback error:', ytErr)
+        }
+      }
+
       setIsLoading(false)
       setIsPlaying(false)
     }
@@ -555,7 +575,13 @@ export function AudioEngine() {
         console.warn('[AudioEngine] Failed to resolve videoId for:', currentTrack.title)
         isSwitchingRef.current = false
         setIsLoading(false)
-        setIsPlaying(false)
+        const { queue, currentIndex } = usePlayerStore.getState()
+        if (queue && queue.length > 0 && currentIndex < queue.length - 1) {
+          logAudio('auto-skipping unresolvable track to next in queue')
+          next()
+        } else {
+          setIsPlaying(false)
+        }
         return
       }
 
@@ -591,9 +617,20 @@ export function AudioEngine() {
               if (err?.name === 'NotAllowedError') {
                 console.warn('[AUDIO] User interaction required before playback.')
                 setIsPlaying(false)
+              } else if (err?.name === 'NotSupportedError') {
+                // If direct stream fails with NotSupportedError, fallback to YT player bridge
+                const vid = currentVideoIdRef.current || usePlayerStore.getState().currentTrack?.videoId
+                if (vid && isYtReadyRef.current && ytPlayerRef.current) {
+                  logAudio('play rejection: activating YouTube IFrame fallback for videoId:', vid)
+                  setActiveEngine('yt')
+                  try {
+                    ytPlayerRef.current.loadVideoById(vid)
+                    ytPlayerRef.current.playVideo()
+                    setIsPlaying(true)
+                  } catch {}
+                }
               } else if (err?.name !== 'AbortError') {
-                console.error('[AUDIO] play rejected:', err?.name, err?.message)
-                console.error('[AUDIO] Current source:', audio.currentSrc || audio.src)
+                logAudio('play rejected:', err?.name, err?.message)
               }
             })
           }
@@ -649,10 +686,13 @@ export function AudioEngine() {
     if (!currentVideoIdRef.current) return
 
     if (isPlaying) {
-      // Only resume if actually paused and has a valid src
+      if (activeEngine === 'yt') return
+
+      // Only resume if actually paused, has a valid src, and has no active error
       if (
         audio.src &&
         audio.src !== window.location.href &&
+        !audio.error &&
         audio.paused
       ) {
         logAudio('resuming audio.play()')
@@ -665,6 +705,17 @@ export function AudioEngine() {
             if (err?.name === 'NotAllowedError') {
               console.warn('[AUDIO] User interaction required before playback.')
               setIsPlaying(false)
+            } else if (err?.name === 'NotSupportedError') {
+              // Element has no supported sources -> switch to YouTube IFrame player fallback
+              const vid = currentVideoIdRef.current || usePlayerStore.getState().currentTrack?.videoId
+              if (vid && isYtReadyRef.current && ytPlayerRef.current) {
+                logAudio('NotSupportedError: Falling back to YouTube IFrame player for videoId:', vid)
+                setActiveEngine('yt')
+                try {
+                  ytPlayerRef.current.loadVideoById(vid)
+                  ytPlayerRef.current.playVideo()
+                } catch {}
+              }
             } else if (err?.name !== 'AbortError') {
               console.error('[AUDIO] resume play rejected:', err?.name, err?.message)
             }
@@ -691,18 +742,51 @@ export function AudioEngine() {
     }
   }, [isPlaying, setIsPlaying])
 
+  // Sync activeEngine 'yt' Play/Pause
+  useEffect(() => {
+    if (activeEngine !== 'yt' || !ytPlayerRef.current) return
+    try {
+      if (isPlaying) {
+        ytPlayerRef.current.playVideo()
+      } else {
+        ytPlayerRef.current.pauseVideo()
+      }
+    } catch {}
+  }, [isPlaying, activeEngine])
+
+  // Sync activeEngine 'yt' Progress
+  useEffect(() => {
+    if (activeEngine !== 'yt') return
+    const timer = setInterval(() => {
+      if (ytPlayerRef.current && typeof ytPlayerRef.current.getCurrentTime === 'function') {
+        try {
+          const cur = ytPlayerRef.current.getCurrentTime() || 0
+          const dur = ytPlayerRef.current.getDuration() || 0
+          setCurrentTime(cur)
+          if (dur > 0) setDuration(dur)
+        } catch {}
+      }
+    }, 500)
+    return () => clearInterval(timer)
+  }, [activeEngine, setCurrentTime, setDuration])
+
   // ─────────────────────────────────────────────────────────────────────────
   // 8. Seek
   // ─────────────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (seekTo === null) return
 
-    if (audioRef.current) {
+    if (activeEngine === 'yt' && ytPlayerRef.current) {
+      try {
+        ytPlayerRef.current.seekTo(seekTo, true)
+      } catch {}
+      clearSeek()
+    } else if (audioRef.current) {
       logAudio('seeking to:', seekTo)
       audioRef.current.currentTime = seekTo
       clearSeek()
     }
-  }, [seekTo, clearSeek])
+  }, [seekTo, clearSeek, activeEngine])
 
   // ─────────────────────────────────────────────────────────────────────────
   // 9. Volume / Mute
@@ -711,6 +795,11 @@ export function AudioEngine() {
     if (audioRef.current) {
       audioRef.current.volume = volume
       audioRef.current.muted = muted
+    }
+    if (ytPlayerRef.current && typeof ytPlayerRef.current.setVolume === 'function') {
+      try {
+        ytPlayerRef.current.setVolume(muted ? 0 : volume * 100)
+      } catch {}
     }
   }, [volume, muted])
 

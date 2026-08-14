@@ -52,7 +52,7 @@ export function HomePage() {
 
     for (const pl of localPlaylists) {
       for (const song of pl.songs || []) {
-        const art = typeof song.artist === 'string' ? song.artist : song.artist?.name
+        const art = typeof song.artist === 'string' ? song.artist : (song.artist as any)?.name
         addArtist(art)
       }
     }
@@ -183,7 +183,8 @@ export function HomePage() {
     subtitle: string
     isPlaylist: boolean
     track: Track | null
-    songs: Track[]
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    songs: any[]
   }> = []
 
   for (const pl of localPlaylists) {
@@ -638,13 +639,13 @@ export function HomePage() {
           </div>
 
           <div className="flex gap-3.5 overflow-x-auto pb-2 scroll-smooth custom-scrollbar no-scrollbar">
-            {history.map((track) => {
+            {history.map((track, idx) => {
               const isPlayingThis = isPlaying && currentTrack?.id === track.id
               const trackThumb = track.thumbnail ?? track.thumbnailUrl
 
               return (
                 <div
-                  key={track.id}
+                  key={`${track.id}-${idx}`}
                   onClick={() => handlePlayTrack(track, history, 'Recently Played')}
                   onContextMenu={(e) => handleCardContextMenu(e, track)}
                   onTouchStart={(e) => handleTouchStart(e, track)}

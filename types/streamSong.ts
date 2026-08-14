@@ -6,5 +6,6 @@ export interface StreamSong {
   durationMs: number
   coverUrl: string
   source: 'spotify-import'
+  videoId?: string        // YouTube video ID if resolved
   resolvedVideoId?: string // Lazy resolved video ID on first playback
 }

@@ -109,7 +109,7 @@ export async function playSong(
       ? queue.findIndex((q) => q.id === song.id)
       : 0
 
-  // 1. Immediately switch playback state in store so UI reacts instantly without waiting
+  // 1. Immediately switch playback state in store so UI reacts instantly
   usePlayerStore
     .getState()
     .play(trackToPlay, trackQueue, playIndex >= 0 ? playIndex : 0, contextTitle)
@@ -119,34 +119,5 @@ export async function playSong(
     setTimeout(() => {
       preloadQueue(queue, playIndex + 1)
     }, 200)
-  }
-
-  // 3. If current song videoId is missing, resolve it with high priority
-  if (!videoId) {
-    try {
-      const query = `${song.title} ${song.artist}`
-      const searchRes = await fetch(`/api/search?q=${encodeURIComponent(query)}&type=songs`)
-      if (requestId !== currentPlayRequestId) return // Discard stale request
-
-      const searchJson = await searchRes.json()
-      if (requestId !== currentPlayRequestId) return // Discard stale request
-
-      const songsList: Track[] = searchJson.data?.songs || []
-      const topResult: Track | null = searchJson.data?.topResult?.data || null
-      const candidates: Track[] = topResult ? [topResult, ...songsList] : songsList
-
-      const matchedTrack = pickBestMatch(candidates, song)
-      const bestVideoId = matchedTrack?.videoId || matchedTrack?.id
-
-      if (bestVideoId) {
-        if (requestId !== currentPlayRequestId) return // Discard stale request
-        videoId = bestVideoId
-        useLibraryStore.getState().updateResolvedVideoId(song.id, bestVideoId)
-        usePlayerStore.getState().updateQueueSongVideoId(song.id, bestVideoId)
-        usePlaylistStore.getState().updateSongResolvedVideoId?.(song.id, bestVideoId)
-      }
-    } catch (err) {
-      console.error('[playSong] Search error resolving videoId:', err)
-    }
   }
 }

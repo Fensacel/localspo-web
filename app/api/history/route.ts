@@ -88,8 +88,8 @@ export async function POST(request: NextRequest) {
     artist: artistName,
     album: albumName,
     thumbnail_url: track.thumbnail ?? track.thumbnailUrl,
-    duration: duration ?? track.duration ?? 0,
-    progress,
+    duration: Math.round(duration ?? track.duration ?? 0),
+    progress: Math.round(progress ?? 0),
     played_at: new Date().toISOString(),
     metadata_json: track,
   })

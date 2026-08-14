@@ -1,14 +1,9 @@
 /**
  * YouTube Music metadata layer.
- * Uses ytmusicapi via a child process or HTTP to yt-music-server.
- * Falls back to YouTube Data API v3 for metadata only.
+ * Uses internal YouTube Music InnerTube API (client: WEB_REMIX) via ytmusic-api.
+ * Zero official YouTube Data API keys required.
  *
- * Architecture:
- *   Next.js API routes → ytmusic.ts → ytmusicapi (Python) via exec
- *   or → yt-music-compatible Node library
- *
- * For the MVP we use yt-search + custom normalization as a fallback
- * since ytmusicapi is Python and requires additional setup.
+ * Scoring and matching is handled by lib/matcher.ts (Dice Coefficient similarity + duration penalty).
  */
 
 import { normalizeTrack, normalizeAlbum, normalizeArtist } from './normalizeTrack'
