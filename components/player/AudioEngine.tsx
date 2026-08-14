@@ -637,7 +637,6 @@ export function AudioEngine() {
         ref={audioRef}
         playsInline
         preload="auto"
-        crossOrigin="anonymous"
         style={{
           position: 'fixed',
           bottom: 0,
