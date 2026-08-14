@@ -68,6 +68,7 @@ function normalisePlaylist(raw: any): ImportedPlaylist {
     album: '',
     coverUrl: '',
     durationMs: 0,
+    source: 'spotify-import' as const,
     resolvedVideoId: undefined,
   }))
 

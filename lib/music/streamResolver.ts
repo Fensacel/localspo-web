@@ -57,7 +57,15 @@ export async function resolveStream(videoId: string): Promise<StreamInfo | null>
 
   log('Resolving stream for:', videoId)
 
-  // 2. Resolve with fast, unthrottled ANDROID_VR Innertube client
+  // 2. Try local python yt_dlp first (handles signed URLs & bypasses YouTube bot detection)
+  const resultYtDlp = await resolveWithLocalYtDlp(videoId)
+  if (resultYtDlp) {
+    setCache(videoId, resultYtDlp)
+    log('Stream resolved via local yt-dlp:', videoId)
+    return resultYtDlp
+  }
+
+  // 3. Fallback: Fast ANDROID_VR Innertube client
   const resultVr = await resolveWithAndroidVr(videoId)
   if (resultVr) {
     setCache(videoId, resultVr)
@@ -65,20 +73,12 @@ export async function resolveStream(videoId: string): Promise<StreamInfo | null>
     return resultVr
   }
 
-  // 3. Fallback: TVHTML5 embedded client (different IP signature, often bypasses blocks)
+  // 4. Fallback: TVHTML5 embedded client
   const resultTv = await resolveWithTvHtml5(videoId)
   if (resultTv) {
     setCache(videoId, resultTv)
     log('Stream resolved via TVHTML5:', videoId)
     return resultTv
-  }
-
-  // 4. Fallback to local python yt_dlp if available in local dev
-  const resultYtDlp = await resolveWithLocalYtDlp(videoId)
-  if (resultYtDlp) {
-    setCache(videoId, resultYtDlp)
-    log('Stream resolved via local yt-dlp:', videoId)
-    return resultYtDlp
   }
 
   log('Stream resolution failed for:', videoId)
@@ -243,7 +243,7 @@ async function resolveWithLocalYtDlp(videoId: string): Promise<StreamInfo | null
       const proc = cp.spawn(
         'python',
         ['-m', 'yt_dlp', '-f', 'bestaudio', '--no-playlist', '--no-warnings', '-j', '--quiet', url],
-        { shell: false }
+        { shell: process.platform === 'win32' }
       )
 
       let stdout = ''
