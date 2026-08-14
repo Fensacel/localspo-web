@@ -1,20 +1,32 @@
 'use client'
 
+import { useMemo, useState, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useAuthStore } from '@/store/authStore'
 import { usePlaylistStore } from '@/store/usePlaylistStore'
-import { TrackRow } from '@/components/music/TrackRow'
-import { Track } from '@/types/track'
 import { usePlayerStore } from '@/store/playerStore'
+import { Track } from '@/types/track'
 import { useRouter } from 'next/navigation'
-import { Music, Volume2 } from 'lucide-react'
+import { TrackContextMenu } from '@/components/music/TrackContextMenu'
+import {
+  Music,
+  Volume2,
+  Sparkles,
+  ChevronRight,
+  Radio,
+  Flame,
+  MoreVertical,
+} from 'lucide-react'
 
 export function HomePage() {
   const { user } = useAuthStore()
-  const { play, isPlaying, currentTrack, contextTitle } = usePlayerStore()
+  const { play, pause, isPlaying, currentTrack, contextTitle } = usePlayerStore()
   const { playlists: localPlaylists } = usePlaylistStore()
+  const [contextMenu, setContextMenu] = useState<{ track: Track; position: { x: number; y: number } } | null>(null)
   const router = useRouter()
+  const longPressTimerRef = useRef<NodeJS.Timeout | null>(null)
 
+  // 1. Fetch user cloud playlists
   const { data: serverPlaylists } = useQuery({
     queryKey: ['playlists'],
     queryFn: async () => {
@@ -25,16 +37,67 @@ export function HomePage() {
     enabled: !!user,
   })
 
-  const { data: trending } = useQuery<Track[]>({
-    queryKey: ['trending'],
+  // 2. Dynamically extract Top Artists from user's playlists
+  const topPlaylistArtists = useMemo(() => {
+    const counts = new Map<string, number>()
+    const addArtist = (name?: string | null) => {
+      if (!name || name === 'Unknown' || name === 'Unknown Artist') return
+      const clean = name.trim()
+      if (clean.length < 2) return
+      counts.set(clean, (counts.get(clean) || 0) + 1)
+    }
+
+    for (const pl of localPlaylists) {
+      for (const song of pl.songs) {
+        const art = typeof song.artist === 'string' ? song.artist : song.artist?.name
+        addArtist(art)
+      }
+    }
+
+    const sorted = Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([art]) => art)
+
+    return sorted
+  }, [localPlaylists])
+
+  const topArtist1 = topPlaylistArtists[0] || 'BABYMONSTER'
+  const topArtist2 = topPlaylistArtists[1] || 'NewJeans'
+
+  // 3. Fetch Personalized Recommendations based on Artist 1 in playlist
+  const { data: recsArtist1 } = useQuery<Track[]>({
+    queryKey: ['recs-artist-1', topArtist1],
     queryFn: async () => {
-      const res = await fetch('/api/search?q=trending+music+2024&type=songs')
+      const res = await fetch(`/api/search?q=${encodeURIComponent(topArtist1 + ' songs hits')}&type=songs`)
       const json = await res.json()
       return json.data?.songs ?? []
     },
-    staleTime: 5 * 60 * 1000,
+    staleTime: 10 * 60 * 1000,
   })
 
+  // 4. Fetch Personalized Recommendations based on Artist 2 in playlist
+  const { data: recsArtist2 } = useQuery<Track[]>({
+    queryKey: ['recs-artist-2', topArtist2],
+    queryFn: async () => {
+      const res = await fetch(`/api/search?q=${encodeURIComponent(topArtist2 + ' songs hits')}&type=songs`)
+      const json = await res.json()
+      return json.data?.songs ?? []
+    },
+    staleTime: 10 * 60 * 1000,
+  })
+
+  // 5. Fetch Global / Indonesian Trending Hits
+  const { data: trendingHits } = useQuery<Track[]>({
+    queryKey: ['trending-home'],
+    queryFn: async () => {
+      const res = await fetch('/api/search?q=top+50+indonesia+global+hits&type=songs')
+      const json = await res.json()
+      return json.data?.songs ?? []
+    },
+    staleTime: 15 * 60 * 1000,
+  })
+
+  // 6. Fetch Play History
   const { data: history } = useQuery<Track[]>({
     queryKey: ['history'],
     queryFn: async () => {
@@ -46,69 +109,116 @@ export function HomePage() {
     staleTime: 60 * 1000,
   })
 
-  function handlePlay(track: Track, tracks: Track[]) {
-    const idx = tracks.findIndex((t) => t.id === track.id)
-    play(track, tracks, idx >= 0 ? idx : 0)
+  function handlePlayTrack(track: Track, trackList: Track[], titleContext?: string) {
+    const isCurrentlyPlayingThis = isPlaying && currentTrack?.id === track.id
+    if (isCurrentlyPlayingThis) {
+      pause()
+    } else {
+      const idx = trackList.findIndex((t) => t.id === track.id)
+      play(track, trackList, idx >= 0 ? idx : 0, titleContext)
+    }
   }
 
-  // Combine local and server playlists for top grid
-  const userPlaylists = [
-    ...localPlaylists.map((pl) => ({
-      id: pl.id,
-      title: pl.name,
-      coverUrl: pl.coverUrl,
-      subtitle: `${pl.songs.length} tracks`,
-      isPlaylist: true,
-      track: null,
-    })),
-    ...(serverPlaylists ?? [])
-      .filter(
-        (spl: any) =>
-          !localPlaylists.some(
-            (lpl) =>
-              lpl.id === spl.id ||
-              lpl.name.toLowerCase().trim() === spl.title?.toLowerCase().trim()
-          )
-      )
-      .map((spl: any) => {
-        const count = Array.isArray(spl.playlist_tracks)
-          ? spl.playlist_tracks[0]?.count ?? spl.playlist_tracks.length
-          : spl.tracks?.length ?? 0
-        return {
-          id: spl.id,
-          title: spl.title,
-          coverUrl: spl.cover_url || spl.coverUrl,
-          subtitle: `${count} tracks`,
-          isPlaylist: true,
-          track: null,
-        }
-      }),
-  ].slice(0, 9)
+  function handleCardContextMenu(e: React.MouseEvent, track: Track) {
+    e.preventDefault()
+    e.stopPropagation()
+    setContextMenu({ track, position: { x: e.clientX, y: e.clientY } })
+  }
 
-  const quickPickTracks = (trending ? trending.slice(0, 9) : []).map((t) => ({
-    id: t.id,
-    title: t.title,
-    coverUrl: t.thumbnail ?? t.thumbnailUrl,
-    subtitle: t.artist?.name ?? '',
-    isPlaylist: false,
-    track: t,
-  }))
+  function handleCardDotsClick(e: React.MouseEvent, track: Track) {
+    e.preventDefault()
+    e.stopPropagation()
+    const rect = e.currentTarget.getBoundingClientRect()
+    setContextMenu({ track, position: { x: rect.left, y: rect.bottom + 4 } })
+  }
 
-  const topGridItems = userPlaylists.length > 0 ? userPlaylists : quickPickTracks
+  function handleTouchStart(e: React.TouchEvent, track: Track) {
+    const touch = e.touches[0]
+    longPressTimerRef.current = setTimeout(() => {
+      setContextMenu({ track, position: { x: touch.clientX, y: touch.clientY } })
+    }, 500)
+  }
+
+  function handleTouchEnd() {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current)
+      longPressTimerRef.current = null
+    }
+  }
+
+  // Combine local and server playlists with strict deduplication
+  const seenIds = new Set<string>()
+  const seenTitles = new Set<string>()
+  const uniquePlaylists: Array<{
+    id: string
+    title: string
+    coverUrl?: string
+    subtitle: string
+    isPlaylist: boolean
+    track: Track | null
+    songs: Track[]
+  }> = []
+
+  for (const pl of localPlaylists) {
+    const normTitle = pl.name.toLowerCase().trim()
+    if (!seenIds.has(pl.id) && !seenTitles.has(normTitle)) {
+      seenIds.add(pl.id)
+      seenTitles.add(normTitle)
+      uniquePlaylists.push({
+        id: pl.id,
+        title: pl.name,
+        coverUrl: pl.coverUrl,
+        subtitle: `${pl.songs.length} tracks`,
+        isPlaylist: true,
+        track: null,
+        songs: pl.songs,
+      })
+    }
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const spl of serverPlaylists ?? []) {
+    const normTitle = (spl.title || '').toLowerCase().trim()
+    if (!seenIds.has(spl.id) && !seenTitles.has(normTitle)) {
+      seenIds.add(spl.id)
+      seenTitles.add(normTitle)
+      uniquePlaylists.push({
+        id: spl.id,
+        title: spl.title,
+        coverUrl: spl.cover_url || spl.coverUrl,
+        subtitle: `${spl.playlist_tracks?.length ?? 0} tracks`,
+        isPlaylist: true,
+        track: null,
+        songs: spl.tracks ?? [],
+      })
+    }
+  }
+
+  // If fewer than 8 playlists, fill remaining slots with recommended tracks from Artist 1
+  const distinctPicks = (recsArtist1 || [])
+    .filter((t) => !seenIds.has(t.id) && !seenTitles.has(t.title.toLowerCase().trim()))
+    .map((t) => ({
+      id: t.id,
+      title: t.title,
+      coverUrl: t.thumbnail ?? t.thumbnailUrl,
+      subtitle: typeof t.artist === 'string' ? t.artist : t.artist?.name ?? '',
+      isPlaylist: false,
+      track: t,
+      songs: [],
+    }))
+
+  const topGridItems = [...uniquePlaylists, ...distinctPicks].slice(0, 8)
 
   return (
-    <div className="flex-1 space-y-8 pb-12" suppressHydrationWarning>
-      {/* Top Playlists / Music Grid */}
+    <div className="flex-1 space-y-7 pb-8 pt-1 selection:bg-white/20" suppressHydrationWarning>
+      {/* 1. Top Quick Playlist / Song Grid (2 Columns on mobile, 4 Columns on desktop) */}
       {topGridItems.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
           {topGridItems.map((item) => {
             const isPlayingThis =
               isPlaying &&
               (contextTitle === item.title ||
-                (item.isPlaylist &&
-                  localPlaylists
-                    .find((p) => p.id === item.id)
-                    ?.songs.some((s) => s.id === currentTrack?.id)) ||
+                (item.isPlaylist && item.songs.some((s) => s.id === currentTrack?.id)) ||
                 (!item.isPlaylist && currentTrack?.id === item.id))
 
             return (
@@ -117,99 +227,350 @@ export function HomePage() {
                 onClick={() => {
                   if (item.isPlaylist) {
                     router.push(`/playlist/${item.id}`)
-                  } else if (item.track) {
-                    handlePlay(
-                      item.track,
-                      quickPickTracks.map((q) => q.track!)
-                    )
+                  } else if (item.track && recsArtist1) {
+                    handlePlayTrack(item.track, recsArtist1, 'Top Picks')
                   }
                 }}
-                className={`flex items-center gap-3 p-2.5 rounded-xl cursor-pointer group transition-all duration-300 shadow-md ${
+                onContextMenu={(e) => item.track && handleCardContextMenu(e, item.track)}
+                onTouchStart={(e) => item.track && handleTouchStart(e, item.track)}
+                onTouchEnd={handleTouchEnd}
+                className={`h-14 rounded-lg flex items-center justify-between overflow-hidden cursor-pointer group transition-all duration-200 shadow-md relative ${
                   isPlayingThis
-                    ? 'bg-white/[0.08] border border-[#5883ad]/50 shadow-lg shadow-black/40'
-                    : 'bg-[#141414]/70 hover:bg-[#1f1f1f] border border-white/10'
+                    ? 'bg-[#383838] border border-[#38bdf8]/60'
+                    : 'bg-[#282828]/85 hover:bg-[#383838] border border-white/5'
                 }`}
               >
-                <div className="relative w-12 h-12 rounded-lg overflow-hidden shrink-0 bg-[#242424]">
-                  {item.coverUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={item.coverUrl}
-                      alt={item.title}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform"
-                    />
-                  ) : (
-                    <div className="w-full h-full bg-white/10 flex items-center justify-center text-gray-400">
-                      <Music size={18} />
-                    </div>
-                  )}
-                  {isPlayingThis && (
-                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                      <Volume2 size={16} className="text-[#38bdf8] animate-pulse" />
-                    </div>
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p
-                    className={`text-xs font-bold truncate transition-colors ${
-                      isPlayingThis ? 'text-white' : 'text-gray-200 group-hover:text-white'
-                    }`}
-                  >
-                    {item.title}
-                  </p>
-                  <p className="text-xs font-mono text-[#5883ad] tracking-tight truncate mt-0.5 flex items-center gap-1.5">
-                    {isPlayingThis && (
-                      <span className="text-[10px] font-semibold text-[#38bdf8] uppercase tracking-wider">
-                        Playing •
-                      </span>
+                <div className="flex items-center min-w-0 flex-1 h-full">
+                  <div className="w-14 h-14 rounded-l-lg overflow-hidden bg-[#181818] shrink-0 relative">
+                    {item.coverUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={item.coverUrl}
+                        alt={item.title}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                      />
+                    ) : (
+                      <div className="w-full h-full bg-white/10 flex items-center justify-center text-gray-400">
+                        <Music size={18} />
+                      </div>
                     )}
-                    <span>{item.subtitle}</span>
-                  </p>
+
+                    {isPlayingThis && (
+                      <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                        <Volume2 size={16} className="text-[#38bdf8] animate-pulse" />
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex-1 min-w-0 px-2.5">
+                    <p
+                      className={`text-xs font-bold truncate leading-snug ${
+                        isPlayingThis ? 'text-[#38bdf8]' : 'text-white'
+                      }`}
+                    >
+                      {item.title}
+                    </p>
+                  </div>
                 </div>
+
+                {item.track && (
+                  <button
+                    onClick={(e) => item.track && handleCardDotsClick(e, item.track)}
+                    className="p-2 text-gray-400 hover:text-white transition-opacity opacity-0 group-hover:opacity-100 sm:block hidden shrink-0"
+                    title="Opsi lagu"
+                  >
+                    <MoreVertical size={15} />
+                  </button>
+                )}
               </div>
             )
           })}
         </div>
       )}
 
-      {/* Recently Played */}
-      {user && history && history.length > 0 && (
-        <section className="space-y-4">
-          <div className="flex items-center justify-between border-b border-white/10 pb-3">
-            <h2 className="text-2xl font-bold text-white tracking-tight">Recently Played</h2>
+      {/* 2. Personalized Artist Recommendation 1 (Based on playlist artist) */}
+      {recsArtist1 && recsArtist1.length > 0 && (
+        <section className="space-y-3">
+          <div className="flex items-center justify-between px-1">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                Berdasarkan Playlist Kamu
+              </p>
+              <h2 className="text-lg sm:text-xl font-extrabold text-white tracking-tight flex items-center gap-2">
+                <Sparkles size={18} className="text-[#38bdf8]" />
+                More like {topArtist1}
+              </h2>
+            </div>
+            <ChevronRight size={18} className="text-gray-400" />
           </div>
-          <div className="bg-[#131313]/60 backdrop-blur-xl border border-white/10 rounded-2xl p-4 space-y-1 shadow-xl">
-            {history.slice(0, 8).map((track, i) => (
-              <TrackRow
-                key={track.id}
-                track={track}
-                index={i + 1}
-                onPlay={() => handlePlay(track, history)}
-                showAlbum
-              />
-            ))}
+
+          <div className="flex gap-3.5 overflow-x-auto pb-2 scroll-smooth custom-scrollbar no-scrollbar">
+            {recsArtist1.map((track) => {
+              const isPlayingThis = isPlaying && currentTrack?.id === track.id
+              const trackThumb = track.thumbnail ?? track.thumbnailUrl
+
+              return (
+                <div
+                  key={track.id}
+                  onClick={() => handlePlayTrack(track, recsArtist1, `More like ${topArtist1}`)}
+                  onContextMenu={(e) => handleCardContextMenu(e, track)}
+                  onTouchStart={(e) => handleTouchStart(e, track)}
+                  onTouchEnd={handleTouchEnd}
+                  className="w-36 sm:w-40 shrink-0 cursor-pointer group relative"
+                >
+                  <div className="w-36 h-36 sm:w-40 sm:h-40 rounded-xl overflow-hidden bg-[#1e1e1e] relative shadow-lg">
+                    {trackThumb ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={trackThumb}
+                        alt={track.title}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-3xl text-gray-600">♪</div>
+                    )}
+
+                    <div className="absolute top-2 left-2 w-5 h-5 rounded-full bg-black/60 backdrop-blur-md flex items-center justify-center">
+                      <Sparkles size={11} className="text-[#38bdf8]" />
+                    </div>
+
+                    {isPlayingThis && (
+                      <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                        <Volume2 size={24} className="text-[#38bdf8] animate-pulse" />
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-between mt-2">
+                    <p className="text-xs font-bold text-white truncate flex-1 group-hover:text-[#38bdf8] transition-colors">
+                      {track.title}
+                    </p>
+                    <button
+                      onClick={(e) => handleCardDotsClick(e, track)}
+                      className="text-gray-400 hover:text-white p-1 rounded-full hover:bg-white/10 shrink-0"
+                      title="Opsi lagu"
+                    >
+                      <MoreVertical size={14} />
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-gray-400 truncate mt-0.5">
+                    {typeof track.artist === 'string' ? track.artist : track.artist?.name || topArtist1}
+                  </p>
+                </div>
+              )
+            })}
           </div>
         </section>
       )}
 
-      {/* Made For You */}
-      {trending && trending.length > 0 && (
-        <section className="space-y-4">
-          <div className="flex items-center justify-between border-b border-white/10 pb-3">
-            <h2 className="text-2xl font-bold text-white tracking-tight">Made For You</h2>
+      {/* 3. Personalized Artist Recommendation 2 (Based on 2nd playlist artist) */}
+      {topArtist2 && recsArtist2 && recsArtist2.length > 0 && topArtist2 !== topArtist1 && (
+        <section className="space-y-3">
+          <div className="flex items-center justify-between px-1">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                Rekomendasi Artis Favorit
+              </p>
+              <h2 className="text-lg sm:text-xl font-extrabold text-white tracking-tight flex items-center gap-2">
+                <Radio size={18} className="text-[#38bdf8]" />
+                More like {topArtist2}
+              </h2>
+            </div>
+            <ChevronRight size={18} className="text-gray-400" />
           </div>
-          <div className="bg-[#131313]/60 backdrop-blur-xl border border-white/10 rounded-2xl p-4 space-y-1 shadow-xl">
-            {trending.slice(0, 8).map((track, i) => (
-              <TrackRow
-                key={track.id}
-                track={track}
-                index={i + 1}
-                onPlay={() => handlePlay(track, trending)}
-                showAlbum
-              />
-            ))}
+
+          <div className="flex gap-3.5 overflow-x-auto pb-2 scroll-smooth custom-scrollbar no-scrollbar">
+            {recsArtist2.map((track) => {
+              const isPlayingThis = isPlaying && currentTrack?.id === track.id
+              const trackThumb = track.thumbnail ?? track.thumbnailUrl
+
+              return (
+                <div
+                  key={track.id}
+                  onClick={() => handlePlayTrack(track, recsArtist2, `More like ${topArtist2}`)}
+                  onContextMenu={(e) => handleCardContextMenu(e, track)}
+                  onTouchStart={(e) => handleTouchStart(e, track)}
+                  onTouchEnd={handleTouchEnd}
+                  className="w-36 sm:w-40 shrink-0 cursor-pointer group relative"
+                >
+                  <div className="w-36 h-36 sm:w-40 sm:h-40 rounded-xl overflow-hidden bg-[#1e1e1e] relative shadow-lg">
+                    {trackThumb ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={trackThumb}
+                        alt={track.title}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-3xl text-gray-600">♪</div>
+                    )}
+
+                    {isPlayingThis && (
+                      <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                        <Volume2 size={24} className="text-[#38bdf8] animate-pulse" />
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-between mt-2">
+                    <p className="text-xs font-bold text-white truncate flex-1 group-hover:text-[#38bdf8] transition-colors">
+                      {track.title}
+                    </p>
+                    <button
+                      onClick={(e) => handleCardDotsClick(e, track)}
+                      className="text-gray-400 hover:text-white p-1 rounded-full hover:bg-white/10 shrink-0"
+                      title="Opsi lagu"
+                    >
+                      <MoreVertical size={14} />
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-gray-400 truncate mt-0.5">
+                    {typeof track.artist === 'string' ? track.artist : track.artist?.name || topArtist2}
+                  </p>
+                </div>
+              )
+            })}
           </div>
         </section>
+      )}
+
+      {/* 4. Horizontal Scroll: "Trending & Charts" */}
+      {trendingHits && trendingHits.length > 0 && (
+        <section className="space-y-3">
+          <div className="flex items-center justify-between px-1">
+            <h2 className="text-lg sm:text-xl font-extrabold text-white tracking-tight flex items-center gap-2">
+              <Flame size={18} className="text-[#38bdf8]" />
+              Top 50 Indonesia & Global
+            </h2>
+            <ChevronRight size={18} className="text-gray-400" />
+          </div>
+
+          <div className="flex gap-3.5 overflow-x-auto pb-2 scroll-smooth custom-scrollbar no-scrollbar">
+            {trendingHits.map((track) => {
+              const isPlayingThis = isPlaying && currentTrack?.id === track.id
+              const trackThumb = track.thumbnail ?? track.thumbnailUrl
+
+              return (
+                <div
+                  key={track.id}
+                  onClick={() => handlePlayTrack(track, trendingHits, 'Top 50 Hits')}
+                  onContextMenu={(e) => handleCardContextMenu(e, track)}
+                  onTouchStart={(e) => handleTouchStart(e, track)}
+                  onTouchEnd={handleTouchEnd}
+                  className="w-36 sm:w-40 shrink-0 cursor-pointer group relative"
+                >
+                  <div className="w-36 h-36 sm:w-40 sm:h-40 rounded-xl overflow-hidden bg-[#1e1e1e] relative shadow-lg">
+                    {trackThumb ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={trackThumb}
+                        alt={track.title}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-3xl text-gray-600">♪</div>
+                    )}
+
+                    {isPlayingThis && (
+                      <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                        <Volume2 size={24} className="text-[#38bdf8] animate-pulse" />
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-between mt-2">
+                    <p className="text-xs font-bold text-white truncate flex-1 group-hover:text-[#38bdf8] transition-colors">
+                      {track.title}
+                    </p>
+                    <button
+                      onClick={(e) => handleCardDotsClick(e, track)}
+                      className="text-gray-400 hover:text-white p-1 rounded-full hover:bg-white/10 shrink-0"
+                      title="Opsi lagu"
+                    >
+                      <MoreVertical size={14} />
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-gray-400 truncate mt-0.5">
+                    {typeof track.artist === 'string' ? track.artist : track.artist?.name || 'Artist'}
+                  </p>
+                </div>
+              )
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* 5. Recently Played (if logged in) */}
+      {user && history && history.length > 0 && (
+        <section className="space-y-3">
+          <div className="flex items-center justify-between px-1">
+            <h2 className="text-lg sm:text-xl font-extrabold text-white tracking-tight">
+              Recently Played
+            </h2>
+          </div>
+
+          <div className="flex gap-3.5 overflow-x-auto pb-2 scroll-smooth custom-scrollbar no-scrollbar">
+            {history.slice(0, 10).map((track) => {
+              const isPlayingThis = isPlaying && currentTrack?.id === track.id
+              const trackThumb = track.thumbnail ?? track.thumbnailUrl
+
+              return (
+                <div
+                  key={track.id}
+                  onClick={() => handlePlayTrack(track, history, 'Recently Played')}
+                  onContextMenu={(e) => handleCardContextMenu(e, track)}
+                  onTouchStart={(e) => handleTouchStart(e, track)}
+                  onTouchEnd={handleTouchEnd}
+                  className="w-32 shrink-0 cursor-pointer group relative"
+                >
+                  <div className="w-32 h-32 rounded-xl overflow-hidden bg-[#1e1e1e] relative shadow-md">
+                    {trackThumb ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={trackThumb}
+                        alt={track.title}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-2xl text-gray-600">♪</div>
+                    )}
+
+                    {isPlayingThis && (
+                      <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                        <Volume2 size={20} className="text-[#38bdf8] animate-pulse" />
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-between mt-1.5">
+                    <p className="text-xs font-bold text-white truncate flex-1 group-hover:text-[#38bdf8] transition-colors">
+                      {track.title}
+                    </p>
+                    <button
+                      onClick={(e) => handleCardDotsClick(e, track)}
+                      className="text-gray-400 hover:text-white p-1 rounded-full hover:bg-white/10 shrink-0"
+                      title="Opsi lagu"
+                    >
+                      <MoreVertical size={13} />
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-gray-400 truncate">
+                    {typeof track.artist === 'string' ? track.artist : track.artist?.name || 'Artist'}
+                  </p>
+                </div>
+              )
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* Track Context Menu (Desktop floating menu / Mobile Bottom Sheet) */}
+      {contextMenu && (
+        <TrackContextMenu
+          track={contextMenu.track}
+          position={contextMenu.position}
+          onClose={() => setContextMenu(null)}
+        />
       )}
     </div>
   )

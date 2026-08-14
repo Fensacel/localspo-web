@@ -71,8 +71,8 @@ export function LyricsPanel() {
 
   if (isLoading) {
     return (
-      <div className="h-full flex items-center justify-center text-gray-500 text-sm animate-pulse">
-        Loading lyrics…
+      <div className="h-full flex items-center justify-center text-gray-400 text-sm animate-pulse">
+        Memuat lirik…
       </div>
     )
   }
@@ -80,16 +80,19 @@ export function LyricsPanel() {
   if (!lyricsData || (!isSynced && !plainText)) {
     return (
       <div className="h-full flex items-center justify-center text-gray-500 text-sm">
-        Lyrics unavailable
+        Lirik tidak tersedia untuk lagu ini
       </div>
     )
   }
 
   return (
-    <div className="relative h-full flex flex-col">
-      {/* Synced Lyrics List */}
+    <div className="relative h-full flex flex-col overflow-hidden">
+      {/* Synced Lyrics List (Left-aligned & Bold matching Spotify screenshot) */}
       {isSynced && lines.length > 0 ? (
-        <div ref={containerRef} className="h-full overflow-y-auto px-8 py-14 space-y-6 scroll-smooth custom-scrollbar">
+        <div
+          ref={containerRef}
+          className="h-full overflow-y-auto px-6 py-24 space-y-3.5 scroll-smooth custom-scrollbar no-scrollbar text-left"
+        >
           {lines.map((line, i) => {
             const isActive = i === activeIdx
             return (
@@ -97,10 +100,10 @@ export function LyricsPanel() {
                 key={i}
                 ref={isActive ? activeRef : null}
                 onClick={() => seek(line.time)}
-                className={`block w-full text-left text-2xl md:text-3xl lg:text-4xl font-extrabold tracking-tight leading-snug transition-all duration-300 rounded-lg px-3 py-2 ${
+                className={`block w-full text-left tracking-tight leading-snug transition-all duration-200 py-1 ${
                   isActive
-                    ? 'text-white scale-[1.02] origin-left opacity-100 drop-shadow-md'
-                    : 'text-gray-500/70 hover:text-gray-200 opacity-60 hover:opacity-90'
+                    ? 'text-xl sm:text-2xl font-black text-white opacity-100'
+                    : 'text-base sm:text-lg font-bold text-white/50 hover:text-white/80'
                 }`}
               >
                 {line.text || ' '}
@@ -109,14 +112,14 @@ export function LyricsPanel() {
           })}
         </div>
       ) : plainText ? (
-        <div className="h-full overflow-y-auto p-8 max-w-4xl mx-auto">
-          <pre className="text-gray-300 text-xl font-bold leading-relaxed whitespace-pre-wrap font-sans">
+        <div className="h-full overflow-y-auto px-6 py-16 text-left">
+          <pre className="text-white/80 text-base sm:text-lg font-bold leading-relaxed whitespace-pre-wrap font-sans">
             {plainText}
           </pre>
         </div>
       ) : (
         <div className="h-full flex items-center justify-center text-gray-500 text-sm">
-          Lyrics unavailable
+          Lirik tidak tersedia
         </div>
       )}
     </div>

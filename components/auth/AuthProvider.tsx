@@ -38,7 +38,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .select('*')
       .eq('user_id', userId)
       .single()
-    if (data) setProfile(data)
+    if (data) setProfile({
+      id: data.id,
+      userId: data.user_id,
+      username: data.username ?? '',
+      displayName: data.display_name ?? '',
+      email: data.email ?? '',
+      avatarUrl: data.avatar_url ?? '',
+      bannerUrl: data.banner_url ?? '',
+      bio: data.bio ?? '',
+      country: data.country ?? '',
+      createdAt: data.created_at,
+      updatedAt: data.updated_at,
+    })
   }
 
   return <>{children}</>

@@ -14,11 +14,15 @@ import {
   Heart,
   ListMusic,
   Mic2,
+  Clock,
 } from 'lucide-react'
 import { usePlayerStore } from '@/store/playerStore'
 import { useUIStore } from '@/store/uiStore'
 import { useLikedTracks } from '@/lib/hooks/useLikedTracks'
 import { formatDuration } from '@/lib/utils/formatDuration'
+import { useState } from 'react'
+import { SleepTimerModal } from '@/components/player/SleepTimerModal'
+import { useSleepTimerStore } from '@/store/useSleepTimerStore'
 
 export function BottomPlayer() {
   const {
@@ -43,6 +47,8 @@ export function BottomPlayer() {
   } = usePlayerStore()
   const { queueOpen, lyricsOpen, toggleQueue, toggleLyrics } = useUIStore()
   const { isLiked, toggleLike } = useLikedTracks()
+  const { isActive: sleepActive } = useSleepTimerStore()
+  const [sleepModalOpen, setSleepModalOpen] = useState(false)
 
   if (!currentTrack) {
     return (
@@ -69,7 +75,8 @@ export function BottomPlayer() {
   }
 
   return (
-    <footer className="fixed bottom-2.5 sm:bottom-4 left-2.5 sm:left-6 right-2.5 sm:right-6 bg-[#141414]/95 sm:bg-[#141414]/90 backdrop-blur-2xl border border-white/15 rounded-2xl sm:rounded-full z-50 shadow-2xl overflow-hidden">
+    <>
+    <footer className="mx-2.5 sm:mx-6 mb-2 sm:mb-4 bg-[#141414]/95 sm:bg-[#141414]/90 backdrop-blur-2xl border border-white/15 rounded-2xl sm:rounded-full shadow-2xl overflow-hidden">
       {/* Mobile Layout (< sm) */}
       <div className="flex sm:hidden flex-col">
         <div className="flex items-center justify-between px-3 py-2 gap-2">
@@ -98,7 +105,7 @@ export function BottomPlayer() {
           </Link>
 
           {/* Mobile Right Controls */}
-          <div className="flex items-center gap-1 shrink-0">
+          <div className="flex items-center gap-1.5 shrink-0">
             <button
               onClick={() => toggleLike(currentTrack)}
               className={`p-2 rounded-full transition-colors ${
@@ -107,16 +114,6 @@ export function BottomPlayer() {
               aria-label={isLiked(currentTrack.id) ? 'Unlike' : 'Like'}
             >
               <Heart size={18} fill={isLiked(currentTrack.id) ? 'currentColor' : 'none'} />
-            </button>
-
-            <button
-              onClick={toggleLyrics}
-              className={`p-2 rounded-full transition-colors ${
-                lyricsOpen ? 'text-white bg-white/20' : 'text-gray-400 hover:text-white'
-              }`}
-              aria-label="Lyrics"
-            >
-              <Mic2 size={17} />
             </button>
 
             <button
@@ -305,6 +302,22 @@ export function BottomPlayer() {
           >
             <ListMusic size={16} />
           </button>
+
+          {/* Sleep Timer */}
+          <button
+            onClick={() => setSleepModalOpen(true)}
+            className={`p-2 rounded-full transition-colors flex items-center gap-1 ${
+              sleepActive
+                ? 'text-[#38bdf8] bg-[#38bdf8]/10'
+                : 'text-gray-400 hover:text-white hover:bg-white/10'
+            }`}
+            aria-label="Sleep Timer"
+            title="Sleep Timer"
+          >
+            <Clock size={16} />
+            {sleepActive && <span className="text-[10px] font-bold">ON</span>}
+          </button>
+
           <div className="hidden md:flex items-center gap-2 pl-2 border-l border-white/10">
             <button
               onClick={toggleMute}
@@ -330,5 +343,12 @@ export function BottomPlayer() {
         </div>
       </div>
     </footer>
+
+    {/* Sleep Timer Bottom Sheet */}
+    <SleepTimerModal
+      isOpen={sleepModalOpen}
+      onClose={() => setSleepModalOpen(false)}
+    />
+  </>
   )
 }

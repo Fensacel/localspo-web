@@ -6,10 +6,12 @@ import { Sidebar } from './Sidebar'
 import { BottomPlayer } from '../player/BottomPlayer'
 import { AudioEngine } from '../player/AudioEngine'
 import { TopBar } from './TopBar'
-import { QueuePanel } from '../player/QueuePanel'
-import { LyricsPanel } from '../lyrics/LyricsPanel'
+import { MobileNav } from './MobileNav'
+import { ToastContainer } from '../ui/ToastContainer'
 import { useUIStore } from '@/store/uiStore'
 import { usePlayerStore } from '@/store/playerStore'
+import { LyricsPanel } from '@/components/lyrics/LyricsPanel'
+import { QueuePanel } from '@/components/player/QueuePanel'
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { queueOpen, lyricsOpen, setLyricsOpen, sidebarOpen } = useUIStore()
@@ -20,6 +22,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     setLyricsOpen(false)
   }, [pathname, setLyricsOpen])
+
+  // Register PWA Service Worker for true standalone app install
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch((err) => {
+        console.warn('Service worker registration failed:', err)
+      })
+    }
+  }, [])
 
   // Dynamic document title update for tab title
   useEffect(() => {
@@ -67,10 +78,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex h-screen w-screen bg-[#050505] text-white overflow-hidden relative">
+      {/* Global In-App Toast Notifications */}
+      <ToastContainer />
+
       {/* Audio engine — single hidden audio element */}
       <AudioEngine />
 
-      {/* Floating Glass Sidebar */}
+      {/* Floating Glass Sidebar (Desktop only) */}
       <Sidebar />
 
       {/* Main Content Area */}
@@ -81,7 +95,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       >
         <TopBar />
 
-        <main className="flex-1 overflow-y-auto pb-[108px] px-3 sm:px-6 relative">
+        <main
+          className={`flex-1 overflow-y-auto relative ${
+            pathname === '/now-playing'
+              ? 'p-0 pb-0'
+              : 'pb-[140px] md:pb-[108px] px-3 sm:px-6'
+          }`}
+        >
           {lyricsOpen ? (
             <div className="h-full w-full bg-[#131313]/90 backdrop-blur-2xl border border-white/10 rounded-2xl relative overflow-hidden flex flex-col shadow-2xl">
               <div className="flex-1 overflow-hidden">
@@ -97,8 +117,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* Queue Side Panel */}
       {queueOpen && <QueuePanel />}
 
-      {/* Floating Capsule Bottom Player */}
-      <BottomPlayer />
+      {/* Floating Capsule Bottom Player (hidden on full now-playing screen) */}
+      {pathname !== '/now-playing' && (
+        <div className="md:contents">
+          <div className="fixed bottom-[58px] md:bottom-0 left-0 right-0 z-40">
+            <BottomPlayer />
+          </div>
+        </div>
+      )}
+
+      {/* Mobile Bottom Navigation Bar (Home / Search / Library / Favorites) */}
+      <MobileNav />
     </div>
   )
 }

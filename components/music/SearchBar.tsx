@@ -2,16 +2,20 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { Search, X, Play, Plus, ListPlus, Loader2, MoreVertical } from 'lucide-react'
+import { Search, X, Play, Plus, ListPlus, Loader2, MoreVertical, Clock } from 'lucide-react'
 import { usePlayerStore } from '@/store/playerStore'
 import { formatDuration } from '@/lib/utils/formatDuration'
 import type { Track } from '@/types/track'
+
+const RECENT_KEY = 'localspo_recent_searches'
+const MAX_RECENT = 8
 
 export function SearchBar() {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<Track[]>([])
   const [loading, setLoading] = useState(false)
   const [open, setOpen] = useState(false)
+  const [recentSearches, setRecentSearches] = useState<string[]>([])
   const [contextMenu, setContextMenu] = useState<{
     track: Track
     x: number
@@ -23,12 +27,42 @@ export function SearchBar() {
   const containerRef = useRef<HTMLDivElement>(null)
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null)
 
+  // Load recent searches
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(RECENT_KEY)
+      if (saved) setRecentSearches(JSON.parse(saved))
+    } catch {}
+  }, [])
+
+  const saveRecentSearch = useCallback((q: string) => {
+    if (!q.trim()) return
+    setRecentSearches((prev) => {
+      const filtered = prev.filter((s) => s.toLowerCase() !== q.toLowerCase())
+      const next = [q, ...filtered].slice(0, MAX_RECENT)
+      try { localStorage.setItem(RECENT_KEY, JSON.stringify(next)) } catch {}
+      return next
+    })
+  }, [])
+
+  const removeRecentSearch = useCallback((q: string) => {
+    setRecentSearches((prev) => {
+      const next = prev.filter((s) => s !== q)
+      try { localStorage.setItem(RECENT_KEY, JSON.stringify(next)) } catch {}
+      return next
+    })
+  }, [])
+
+  const clearAllRecent = useCallback(() => {
+    setRecentSearches([])
+    try { localStorage.removeItem(RECENT_KEY) } catch {}
+  }, [])
+
   // 1. Live Instant Search with Debounce
   useEffect(() => {
     if (!query.trim()) {
       setResults([])
       setLoading(false)
-      setOpen(false)
       return
     }
 
@@ -86,12 +120,13 @@ export function SearchBar() {
   const handleSearchSubmit = useCallback(
     (q: string) => {
       if (q.trim()) {
+        saveRecentSearch(q.trim())
         setOpen(false)
         setContextMenu(null)
         router.push(`/search?q=${encodeURIComponent(q.trim())}`)
       }
     },
-    [router]
+    [router, saveRecentSearch]
   )
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -103,8 +138,8 @@ export function SearchBar() {
   function handleClear() {
     setQuery('')
     setResults([])
-    setOpen(false)
     setContextMenu(null)
+    setOpen(true) // keep dropdown open to show recents
   }
 
   function handlePlayTrack(track: Track) {
@@ -122,6 +157,9 @@ export function SearchBar() {
     setContextMenu({ track, x: Math.min(x, 260), y: Math.min(y, 320) })
   }
 
+  // Show recent searches dropdown when focused + no query
+  const showRecents = open && !query.trim() && recentSearches.length > 0
+
   return (
     <div ref={containerRef} className="relative w-full">
       <Search
@@ -133,12 +171,13 @@ export function SearchBar() {
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         onFocus={() => {
-          if (query.trim() && results.length > 0) setOpen(true)
+          setOpen(true)
         }}
         onKeyDown={handleKeyDown}
         placeholder="Search songs, artists, albums..."
         className="w-full bg-[#1a1a1a] border border-[#333] focus:border-blue-500 rounded-full pl-9 pr-8 py-1.5 text-sm text-white placeholder-gray-500 outline-none transition-colors shadow-inner"
         aria-label="Search"
+        autoComplete="off"
       />
       {query && (
         <button
@@ -148,6 +187,49 @@ export function SearchBar() {
         >
           <X size={14} />
         </button>
+      )}
+
+      {/* Recent Searches Dropdown (when no query) */}
+      {showRecents && (
+        <div className="absolute left-0 right-0 top-full mt-2 bg-[#121212]/95 backdrop-blur-2xl border border-white/10 rounded-2xl shadow-2xl overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-150">
+          <div className="flex items-center justify-between px-3 pt-3 pb-2">
+            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Pencarian Terakhir</span>
+            <button
+              onClick={clearAllRecent}
+              className="text-[10px] text-gray-500 hover:text-red-400 transition-colors font-medium"
+            >
+              Hapus semua
+            </button>
+          </div>
+          <div className="divide-y divide-white/5">
+            {recentSearches.map((q) => (
+              <div
+                key={q}
+                className="flex items-center justify-between px-3 py-2 hover:bg-white/5 transition-colors cursor-pointer group"
+              >
+                <button
+                  className="flex items-center gap-2.5 flex-1 min-w-0 text-left"
+                  onClick={() => {
+                    setQuery(q)
+                    handleSearchSubmit(q)
+                  }}
+                >
+                  <Clock size={12} className="text-gray-500 shrink-0" />
+                  <span className="text-xs text-gray-200 truncate">{q}</span>
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    removeRecentSearch(q)
+                  }}
+                  className="ml-2 p-1 text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all shrink-0"
+                >
+                  <X size={11} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
       {/* Live Search Dropdown */}

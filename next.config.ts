@@ -22,12 +22,9 @@ const nextConfig: NextConfig = {
   // Mark them as external so Next.js loads them via Node's require() at runtime.
   serverExternalPackages: [
     '@distube/ytdl-core',
-    'ytdl-core',
     'yt-dlp-wrap',
     'ytsr',
     'ytmusic-api',
-    'm3u8stream',
-    'miniget',
   ],
 
   images: {

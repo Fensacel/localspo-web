@@ -35,10 +35,13 @@ export function AudioEngine() {
   const {
     currentTrack,
     isPlaying,
+    currentTime,
+    duration,
     seekTo,
     volume,
     muted,
     next,
+    previous,
     setCurrentTime,
     setDuration,
     setIsPlaying,
@@ -76,7 +79,76 @@ export function AudioEngine() {
     }
   }, [])
 
-  // 2. Initialize YouTube IFrame API script for universal Mobile & Cloudflare playback
+  // 2. MediaSession API for Mobile Background & Lock Screen Playback Controls
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('mediaSession' in navigator)) return
+
+    if (currentTrack) {
+      const artistName =
+        typeof currentTrack.artist === 'string'
+          ? currentTrack.artist
+          : currentTrack.artist?.name || 'LocalSpo'
+      const albumName =
+        typeof currentTrack.album === 'string'
+          ? currentTrack.album
+          : currentTrack.album?.name || 'LocalSpo Music'
+      const artworkUrl = currentTrack.thumbnail || currentTrack.thumbnailUrl || '/logo.png'
+
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: currentTrack.title,
+        artist: artistName,
+        album: albumName,
+        artwork: [
+          { src: artworkUrl, sizes: '96x96', type: 'image/png' },
+          { src: artworkUrl, sizes: '128x128', type: 'image/png' },
+          { src: artworkUrl, sizes: '192x192', type: 'image/png' },
+          { src: artworkUrl, sizes: '256x256', type: 'image/png' },
+          { src: artworkUrl, sizes: '384x384', type: 'image/png' },
+          { src: artworkUrl, sizes: '512x512', type: 'image/png' },
+        ],
+      })
+    }
+
+    try {
+      navigator.mediaSession.setActionHandler('play', () => {
+        usePlayerStore.getState().resume()
+      })
+      navigator.mediaSession.setActionHandler('pause', () => {
+        usePlayerStore.getState().pause()
+      })
+      navigator.mediaSession.setActionHandler('previoustrack', () => {
+        usePlayerStore.getState().previous()
+      })
+      navigator.mediaSession.setActionHandler('nexttrack', () => {
+        usePlayerStore.getState().next()
+      })
+      navigator.mediaSession.setActionHandler('seekto', (details) => {
+        if (details.seekTime !== undefined) {
+          usePlayerStore.getState().seek(details.seekTime)
+        }
+      })
+    } catch (e) {
+      log('MediaSession action handler error:', e)
+    }
+  }, [currentTrack, next, previous])
+
+  // 3. Sync MediaSession Playback State & Position State
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('mediaSession' in navigator)) return
+
+    try {
+      navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused'
+      if (duration > 0 && typeof navigator.mediaSession.setPositionState === 'function') {
+        navigator.mediaSession.setPositionState({
+          duration: Math.max(0, duration),
+          playbackRate: 1,
+          position: Math.min(Math.max(0, currentTime), duration),
+        })
+      }
+    } catch {}
+  }, [isPlaying, currentTime, duration])
+
+  // 4. Initialize YouTube IFrame API script for universal Mobile & Cloudflare playback
   useEffect(() => {
     if (typeof window === 'undefined') return
 
@@ -157,7 +229,7 @@ export function AudioEngine() {
     }
   }, [next, setDuration, setIsLoading, setIsPlaying])
 
-  // 3. Setup Native HTML5 Audio Element
+  // 5. Setup Native HTML5 Audio Element
   useEffect(() => {
     if (!audioRef.current) {
       audioRef.current = new Audio()
@@ -296,7 +368,7 @@ export function AudioEngine() {
     })
   }
 
-  // 4. YouTube Timer for progress tracking
+  // 6. YouTube Timer for progress tracking
   useEffect(() => {
     if (activeEngine !== 'yt') return
 
@@ -323,7 +395,7 @@ export function AudioEngine() {
     return () => clearInterval(timer)
   }, [activeEngine, isPlaying, currentTrack, setCurrentTime, setDuration])
 
-  // 5. Load Track on Track Change
+  // 7. Load Track on Track Change
   useEffect(() => {
     if (!currentTrack) return
     const audio = audioRef.current
@@ -447,7 +519,7 @@ export function AudioEngine() {
     return () => clearTimeout(safetyTimer)
   }, [currentTrack?.id, currentTrack?.videoId, activeEngine, setIsLoading, setIsPlaying])
 
-  // 6. Sync Play / Pause
+  // 8. Sync Play / Pause
   useEffect(() => {
     if (activeEngine === 'yt') {
       if (ytPlayerRef.current) {
@@ -495,7 +567,7 @@ export function AudioEngine() {
     }
   }, [isPlaying, activeEngine, setIsPlaying])
 
-  // 7. Handle Seek
+  // 9. Handle Seek
   useEffect(() => {
     if (seekTo === null) return
 
@@ -513,7 +585,7 @@ export function AudioEngine() {
     }
   }, [seekTo, activeEngine, clearSeek])
 
-  // 8. Sync Volume / Mute
+  // 10. Sync Volume / Mute
   useEffect(() => {
     if (activeEngine === 'yt' && ytPlayerRef.current) {
       try {

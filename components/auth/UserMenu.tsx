@@ -8,7 +8,6 @@ import {
   User,
   Clock,
   BarChart2,
-  MessageSquare,
   ChevronDown,
   Download,
 } from 'lucide-react'
@@ -20,6 +19,7 @@ export function UserMenu() {
   const { user, profile } = useAuthStore()
   const [open, setOpen] = useState(false)
   const [importModalOpen, setImportModalOpen] = useState(false)
+  const [imgError, setImgError] = useState(false)
   const router = useRouter()
 
   async function handleLogin() {
@@ -65,46 +65,63 @@ export function UserMenu() {
   }
 
   const avatar = profile?.avatarUrl ?? user.user_metadata?.avatar_url
-  const name = profile?.displayName ?? user.user_metadata?.full_name ?? user.email
+  const name = profile?.displayName ?? user.user_metadata?.full_name ?? user.email ?? 'User'
+  const initial = (name.charAt(0) || 'U').toUpperCase()
 
   return (
     <div className="relative">
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-2.5 px-3 py-1.5 rounded-full bg-[#131313]/80 hover:bg-[#1f1f1f] border border-white/10 transition-all shadow-md"
+        className="flex items-center gap-2 p-0.5 sm:px-3 sm:py-1.5 rounded-full bg-[#141414]/90 hover:bg-[#222222] border border-white/15 transition-all shadow-md active:scale-95"
         aria-label="User menu"
       >
-        {avatar ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={avatar}
-            alt={name ?? ''}
-            className="w-7 h-7 rounded-full object-cover border border-white/10 shrink-0"
-            onError={(e) => {
-              ;(e.target as HTMLImageElement).style.display = 'none'
-            }}
-          />
-        ) : (
-          <div className="w-7 h-7 rounded-full bg-white/10 flex items-center justify-center shrink-0">
-            <User size={14} className="text-white" />
-          </div>
-        )}
-        <span className="text-xs font-semibold text-white max-w-[120px] truncate hidden sm:block">
+        {/* User Profile Picture (PP) */}
+        <div className="w-8 h-8 sm:w-7 sm:h-7 rounded-full overflow-hidden bg-gradient-to-tr from-blue-600 to-sky-400 border border-white/20 flex items-center justify-center shrink-0 shadow">
+          {avatar && !imgError ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={avatar}
+              alt={name}
+              className="w-full h-full object-cover"
+              onError={() => setImgError(true)}
+            />
+          ) : (
+            <span className="text-xs font-black text-white">{initial}</span>
+          )}
+        </div>
+
+        <span className="text-xs font-bold text-white max-w-[120px] truncate hidden sm:block">
           {name}
         </span>
-        <ChevronDown size={14} className="text-gray-400 shrink-0" />
+        <ChevronDown size={14} className="text-gray-400 shrink-0 hidden sm:block" />
       </button>
 
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-12 z-50 w-52 bg-[#141414]/95 backdrop-blur-2xl border border-white/10 rounded-2xl shadow-2xl py-2 overflow-hidden space-y-0.5">
+          <div className="absolute right-0 top-11 sm:top-12 z-50 w-56 bg-[#141414]/95 backdrop-blur-2xl border border-white/15 rounded-2xl shadow-2xl py-2 overflow-hidden space-y-0.5 animate-in fade-in slide-in-from-top-2 duration-150">
+            {/* Header with profile name & email */}
+            <div className="px-4 py-2 border-b border-white/10 mb-1 flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-full overflow-hidden bg-gradient-to-tr from-blue-600 to-sky-400 flex items-center justify-center shrink-0">
+                {avatar && !imgError ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={avatar} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <span className="text-xs font-bold text-white">{initial}</span>
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-bold text-white truncate">{name}</p>
+                <p className="text-[10px] text-gray-400 truncate">{user.email}</p>
+              </div>
+            </div>
+
             <button
               onClick={() => {
                 router.push('/history')
                 setOpen(false)
               }}
-              className="flex items-center gap-3 w-full px-4 py-2.5 text-xs font-medium text-gray-200 hover:bg-white/10 hover:text-white transition-colors"
+              className="flex items-center gap-3 w-full px-4 py-2 text-xs font-medium text-gray-200 hover:bg-white/10 hover:text-white transition-colors"
             >
               <Clock size={16} className="text-gray-400" />
               Recently Played
@@ -114,7 +131,7 @@ export function UserMenu() {
                 router.push('/stats')
                 setOpen(false)
               }}
-              className="flex items-center gap-3 w-full px-4 py-2.5 text-xs font-medium text-gray-200 hover:bg-white/10 hover:text-white transition-colors"
+              className="flex items-center gap-3 w-full px-4 py-2 text-xs font-medium text-gray-200 hover:bg-white/10 hover:text-white transition-colors"
             >
               <BarChart2 size={16} className="text-gray-400" />
               Stats
@@ -124,35 +141,25 @@ export function UserMenu() {
                 router.push('/profile')
                 setOpen(false)
               }}
-              className="flex items-center gap-3 w-full px-4 py-2.5 text-xs font-medium text-gray-200 hover:bg-white/10 hover:text-white transition-colors"
+              className="flex items-center gap-3 w-full px-4 py-2 text-xs font-medium text-gray-200 hover:bg-white/10 hover:text-white transition-colors"
             >
               <User size={16} className="text-gray-400" />
               Profile
             </button>
             <button
               onClick={() => {
-                router.push('/chat')
-                setOpen(false)
-              }}
-              className="flex items-center gap-3 w-full px-4 py-2.5 text-xs font-medium text-gray-200 hover:bg-white/10 hover:text-white transition-colors"
-            >
-              <MessageSquare size={16} className="text-gray-400" />
-              Chat
-            </button>
-            <button
-              onClick={() => {
                 setImportModalOpen(true)
                 setOpen(false)
               }}
-              className="flex items-center gap-3 w-full px-4 py-2.5 text-xs font-medium text-blue-400 hover:bg-blue-500/10 hover:text-blue-300 transition-colors"
+              className="flex items-center gap-3 w-full px-4 py-2 text-xs font-medium text-[#38bdf8] hover:bg-[#38bdf8]/10 transition-colors"
             >
-              <Download size={16} className="text-blue-400" />
+              <Download size={16} className="text-[#38bdf8]" />
               Import Playlist
             </button>
             <div className="border-t border-white/10 my-1.5" />
             <button
               onClick={handleLogout}
-              className="flex items-center gap-3 w-full px-4 py-2.5 text-xs font-medium text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-colors"
+              className="flex items-center gap-3 w-full px-4 py-2 text-xs font-medium text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-colors"
             >
               <LogOut size={16} />
               Sign out
