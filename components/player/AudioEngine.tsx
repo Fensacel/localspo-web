@@ -31,6 +31,7 @@ export function AudioEngine() {
   const hasLoggedHistoryRef = useRef<boolean>(false)
   const audioRequestIdRef = useRef<number>(0)
   const playPromiseRef = useRef<Promise<void> | null>(null)
+  const lastPositionUpdateRef = useRef<number>(0)
 
   const {
     currentTrack,
@@ -49,37 +50,7 @@ export function AudioEngine() {
     clearSeek,
   } = usePlayerStore()
 
-  // 1. Mobile Audio Context & Autoplay Unlocker
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-
-    function unlockAudio() {
-      if (audioRef.current) {
-        audioRef.current.play().then(() => {
-          if (!usePlayerStore.getState().isPlaying) {
-            audioRef.current?.pause()
-          }
-        }).catch(() => {})
-      }
-      if (ytPlayerRef.current?.playVideo) {
-        try {
-          if (!usePlayerStore.getState().isPlaying) {
-            ytPlayerRef.current.pauseVideo()
-          }
-        } catch {}
-      }
-    }
-
-    window.addEventListener('touchstart', unlockAudio, { once: true, passive: true })
-    window.addEventListener('click', unlockAudio, { once: true, passive: true })
-
-    return () => {
-      window.removeEventListener('touchstart', unlockAudio)
-      window.removeEventListener('click', unlockAudio)
-    }
-  }, [])
-
-  // 2. MediaSession API for Mobile Background & Lock Screen Playback Controls
+  // 1. Setup MediaSession API for lock-screen, Android notification bar & background controls
   useEffect(() => {
     if (typeof window === 'undefined' || !('mediaSession' in navigator)) return
 
@@ -127,28 +98,33 @@ export function AudioEngine() {
           usePlayerStore.getState().seek(details.seekTime)
         }
       })
+      navigator.mediaSession.setActionHandler('seekbackward', (details) => {
+        const offset = details.seekOffset || 10
+        const current = usePlayerStore.getState().currentTime
+        usePlayerStore.getState().seek(Math.max(0, current - offset))
+      })
+      navigator.mediaSession.setActionHandler('seekforward', (details) => {
+        const offset = details.seekOffset || 10
+        const current = usePlayerStore.getState().currentTime
+        usePlayerStore.getState().seek(current + offset)
+      })
+      navigator.mediaSession.setActionHandler('stop', () => {
+        usePlayerStore.getState().pause()
+      })
     } catch (e) {
       log('MediaSession action handler error:', e)
     }
-  }, [currentTrack, next, previous])
+  }, [currentTrack])
 
-  // 3. Sync MediaSession Playback State & Position State
+  // 2. Sync MediaSession Playback State
   useEffect(() => {
     if (typeof window === 'undefined' || !('mediaSession' in navigator)) return
-
     try {
       navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused'
-      if (duration > 0 && typeof navigator.mediaSession.setPositionState === 'function') {
-        navigator.mediaSession.setPositionState({
-          duration: Math.max(0, duration),
-          playbackRate: 1,
-          position: Math.min(Math.max(0, currentTime), duration),
-        })
-      }
     } catch {}
-  }, [isPlaying, currentTime, duration])
+  }, [isPlaying])
 
-  // 4. Initialize YouTube IFrame API script for universal Mobile & Cloudflare playback
+  // 3. Initialize YouTube IFrame API script for fallback playback
   useEffect(() => {
     if (typeof window === 'undefined') return
 
@@ -229,7 +205,7 @@ export function AudioEngine() {
     }
   }, [next, setDuration, setIsLoading, setIsPlaying])
 
-  // 5. Setup Native HTML5 Audio Element
+  // 4. Setup Native HTML5 Audio Element & Background Lifecycle Handlers
   useEffect(() => {
     const el = audioRef.current
     if (!el) return
@@ -238,6 +214,21 @@ export function AudioEngine() {
     function onTimeUpdate() {
       if (activeEngine !== 'html5') return
       setCurrentTime(audio.currentTime)
+
+      // Sync lock-screen position state every second
+      const now = Date.now()
+      if (now - lastPositionUpdateRef.current > 1000 && 'mediaSession' in navigator && typeof navigator.mediaSession.setPositionState === 'function') {
+        lastPositionUpdateRef.current = now
+        try {
+          if (audio.duration > 0) {
+            navigator.mediaSession.setPositionState({
+              duration: audio.duration,
+              playbackRate: 1,
+              position: Math.min(audio.currentTime, audio.duration),
+            })
+          }
+        } catch {}
+      }
 
       if (audio.currentTime >= 5 && !hasLoggedHistoryRef.current) {
         logHistory(audio.currentTime, audio.duration || currentTrack?.duration || 0)
@@ -248,6 +239,17 @@ export function AudioEngine() {
       if (activeEngine !== 'html5') return
       setDuration(audio.duration || 0)
       setIsLoading(false)
+      if ('mediaSession' in navigator && typeof navigator.mediaSession.setPositionState === 'function') {
+        try {
+          if (audio.duration > 0) {
+            navigator.mediaSession.setPositionState({
+              duration: audio.duration,
+              playbackRate: 1,
+              position: audio.currentTime,
+            })
+          }
+        } catch {}
+      }
     }
 
     function onPlay() {
@@ -273,6 +275,7 @@ export function AudioEngine() {
           })
         }
       } else {
+        // Continuous background play on ended
         next()
       }
     }
@@ -366,7 +369,7 @@ export function AudioEngine() {
     })
   }
 
-  // 6. YouTube Timer for progress tracking
+  // 5. YouTube Timer for progress tracking
   useEffect(() => {
     if (activeEngine !== 'yt') return
 
@@ -393,7 +396,7 @@ export function AudioEngine() {
     return () => clearInterval(timer)
   }, [activeEngine, isPlaying, currentTrack, setCurrentTime, setDuration])
 
-  // 7. Load Track on Track Change
+  // 6. Load Track on Track Change
   useEffect(() => {
     if (!currentTrack) return
     const audio = audioRef.current
@@ -536,7 +539,7 @@ export function AudioEngine() {
     return () => clearTimeout(safetyTimer)
   }, [currentTrack?.id, currentTrack?.videoId, activeEngine, setIsLoading, setIsPlaying])
 
-  // 8. Sync Play / Pause
+  // 7. Sync Play / Pause
   useEffect(() => {
     if (activeEngine === 'yt') {
       if (ytPlayerRef.current) {
@@ -584,7 +587,7 @@ export function AudioEngine() {
     }
   }, [isPlaying, activeEngine, setIsPlaying])
 
-  // 9. Handle Seek
+  // 8. Handle Seek
   useEffect(() => {
     if (seekTo === null) return
 
@@ -602,7 +605,7 @@ export function AudioEngine() {
     }
   }, [seekTo, activeEngine, clearSeek])
 
-  // 10. Sync Volume / Mute
+  // 9. Sync Volume / Mute
   useEffect(() => {
     if (activeEngine === 'yt' && ytPlayerRef.current) {
       try {
@@ -630,7 +633,17 @@ export function AudioEngine() {
         playsInline
         preload="auto"
         crossOrigin="anonymous"
-        style={{ position: 'fixed', opacity: 0, pointerEvents: 'none', zIndex: -100 }}
+        style={{
+          position: 'fixed',
+          bottom: 0,
+          left: 0,
+          width: '1px',
+          height: '1px',
+          opacity: 0.01,
+          pointerEvents: 'none',
+          zIndex: -1,
+        }}
+        aria-hidden="true"
       />
 
       <div

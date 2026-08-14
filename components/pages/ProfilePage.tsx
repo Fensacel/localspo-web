@@ -14,6 +14,7 @@ import {
   ListMusic,
   BarChart2,
   LogOut,
+  LogIn,
   Camera,
   Edit2,
   Check,
@@ -167,6 +168,16 @@ export function ProfilePage() {
     }
   }
 
+  async function handleLogin() {
+    const supabase = createClient()
+    await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${window.location.origin}/api/auth/callback`,
+      },
+    })
+  }
+
   async function handleLogout() {
     const supabase = createClient()
     await supabase.auth.signOut()
@@ -175,20 +186,29 @@ export function ProfilePage() {
 
   if (!user) {
     return (
-      <div className="flex-1 flex items-center justify-center flex-col gap-5 text-gray-400 p-8">
-        <div className="w-20 h-20 rounded-full bg-white/5 flex items-center justify-center text-4xl">
+      <div className="flex-1 flex items-center justify-center flex-col gap-5 text-gray-400 p-8 min-h-[60vh]">
+        <div className="w-20 h-20 rounded-full bg-white/5 flex items-center justify-center text-4xl shadow-inner">
           👤
         </div>
         <div className="text-center">
-          <p className="text-white font-bold text-lg">Belum masuk</p>
-          <p className="text-sm text-gray-400 mt-1">Masuk untuk melihat profil kamu</p>
+          <p className="text-white font-bold text-xl">Belum Masuk</p>
+          <p className="text-sm text-gray-400 mt-1">Masuk dengan akun Google untuk melihat profil, playlist, dan statistik kamu</p>
         </div>
-        <button
-          onClick={() => router.push('/')}
-          className="px-6 py-2.5 rounded-full bg-white text-black font-bold text-sm"
-        >
-          Kembali ke Home
-        </button>
+        <div className="flex flex-col sm:flex-row items-center gap-3 w-full max-w-xs">
+          <button
+            onClick={handleLogin}
+            className="w-full py-3 px-6 rounded-full bg-white text-black font-bold text-sm hover:bg-gray-200 active:scale-95 shadow-xl transition-all flex items-center justify-center gap-2"
+          >
+            <LogIn size={16} />
+            <span>Masuk dengan Google</span>
+          </button>
+          <button
+            onClick={() => router.push('/')}
+            className="w-full py-2.5 px-6 rounded-full bg-white/10 text-white font-semibold text-xs hover:bg-white/15 active:scale-95 transition-all text-center"
+          >
+            Kembali ke Home
+          </button>
+        </div>
       </div>
     )
   }
