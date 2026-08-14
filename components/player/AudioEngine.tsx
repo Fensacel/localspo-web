@@ -553,6 +553,8 @@ export function AudioEngine() {
               logAudio('play resolved successfully')
             }).catch((err) => {
               console.error('[AUDIO] play rejected:', err?.name, err?.message)
+              console.error('[AUDIO] Current source:', audio.currentSrc || audio.src)
+              console.error('[AUDIO] Media Error details:', audio.error)
             })
           }
         }
