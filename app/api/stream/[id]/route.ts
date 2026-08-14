@@ -26,13 +26,45 @@ export async function GET(
       )
     }
 
-    // Redirect audio player directly to the high-speed unencrypted stream
-    return NextResponse.redirect(stream.url, {
-      status: 307,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Cache-Control': 'public, max-age=3600',
-      },
+    const range = req.headers.get('range')
+    const upstreamHeaders: Record<string, string> = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Referer': 'https://www.youtube.com/',
+      'Origin': 'https://www.youtube.com',
+    }
+    if (range) {
+      upstreamHeaders['Range'] = range
+    }
+
+    const upstream = await fetch(stream.url, { headers: upstreamHeaders })
+
+    if (!upstream.ok && upstream.status !== 206) {
+      if (upstream.status === 403) {
+        evictCache(videoId)
+      }
+      return NextResponse.json(
+        { success: false, error: { code: 'STREAM_FETCH_FAILED', message: 'Could not fetch stream.' } },
+        { status: 502 }
+      )
+    }
+
+    const headers = new Headers()
+    const contentType = upstream.headers.get('content-type') || stream.mimeType || 'audio/webm'
+    const contentLength = upstream.headers.get('content-length')
+    const contentRange = upstream.headers.get('content-range')
+
+    headers.set('Content-Type', contentType)
+    headers.set('Accept-Ranges', 'bytes')
+    headers.set('Access-Control-Allow-Origin', '*')
+    headers.set('Cache-Control', 'no-cache, no-store, must-revalidate')
+    if (contentLength) headers.set('Content-Length', contentLength)
+    if (contentRange) headers.set('Content-Range', contentRange)
+
+    const arrayBuffer = await upstream.arrayBuffer()
+
+    return new Response(arrayBuffer, {
+      status: upstream.status || 200,
+      headers,
     })
   } catch (err) {
     console.error('[/api/stream]', err)

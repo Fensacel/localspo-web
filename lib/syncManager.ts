@@ -34,7 +34,9 @@ export async function syncFollowedPlaylist(spotifyId: string): Promise<{ newTrac
     )
 
     if (!localPlaylist) {
-      console.warn(`[SyncManager] Local playlist not found for ${spotifyId}`)
+      // Local playlist was deleted — auto-unfollow to stop future sync attempts
+      console.warn(`[SyncManager] Local playlist not found for ${spotifyId} — removing stale follow entry`)
+      useFollowedPlaylistStore.getState().unfollowPlaylist(spotifyId)
       return { newTracksCount: 0 }
     }
 

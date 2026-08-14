@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { usePlayerStore } from '@/store/playerStore'
 import { useLibraryStore } from '@/store/useLibraryStore'
 import { pickBestMatch } from '@/lib/playSong'
@@ -31,24 +31,38 @@ export function AudioEngine() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const ytPlayerRef = useRef<any>(null)
   const isYtReadyRef = useRef<boolean>(false)
-  const [activeEngine, setActiveEngine] = useState<'html5' | 'yt'>('html5')
-  const hasLoggedHistoryRef = useRef<boolean>(false)
+
+  // Generation counter: every track switch increments this.
+  // Any async callback checks against this to discard stale work.
   const audioRequestIdRef = useRef<number>(0)
+
+  // Holds the pending play() Promise so we can await it before pause.
   const playPromiseRef = useRef<Promise<void> | null>(null)
+
+  // Set to true while we are in the STOP phase of a track switch,
+  // so that the onPause event listener does NOT set isPlaying=false
+  // in the store (which would prevent the new track from auto-playing).
+  const isSwitchingRef = useRef<boolean>(false)
+
+  // Tracks whether we have already written the play-history entry for
+  // the current track (reset on each track change).
+  const hasLoggedHistoryRef = useRef<boolean>(false)
+
+  // Throttle for setPositionState — only update at most once per second.
   const lastPositionUpdateRef = useRef<number>(0)
-  const currentTargetVideoIdRef = useRef<string | null>(null)
-  const lastLoadedTrackIdRef = useRef<string | null>(null)
+
+  // The resolved videoId that the audio element currently has as its src.
+  // Used to guard the play/pause sync effect against calling play()
+  // when the src hasn't been set yet or belongs to a previous track.
+  const currentVideoIdRef = useRef<string | null>(null)
 
   const {
     currentTrack,
     isPlaying,
-    currentTime,
-    duration,
     seekTo,
     volume,
     muted,
     next,
-    previous,
     setCurrentTime,
     setDuration,
     setIsPlaying,
@@ -56,40 +70,14 @@ export function AudioEngine() {
     clearSeek,
   } = usePlayerStore()
 
-  // 1. Setup MediaSession API for lock-screen, Android notification bar & background controls
+  // ─────────────────────────────────────────────────────────────────────────
+  // 1. MediaSession — Action Handlers (registered ONCE on mount, never again)
+  //    They delegate to the existing store actions — no new queue logic.
+  // ─────────────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (typeof window === 'undefined' || !('mediaSession' in navigator)) return
 
-    if (currentTrack) {
-      const artistName =
-        typeof currentTrack.artist === 'string'
-          ? currentTrack.artist
-          : currentTrack.artist?.name || 'LocalSpo'
-      const albumName =
-        typeof currentTrack.album === 'string'
-          ? currentTrack.album
-          : currentTrack.album?.name || 'LocalSpo Music'
-      const artworkUrl = currentTrack.thumbnail || currentTrack.thumbnailUrl || '/logo.png'
-
-      try {
-        navigator.mediaSession.metadata = new MediaMetadata({
-          title: currentTrack.title,
-          artist: artistName,
-          album: albumName,
-          artwork: [
-            { src: artworkUrl, sizes: '96x96' },
-            { src: artworkUrl, sizes: '128x128' },
-            { src: artworkUrl, sizes: '192x192' },
-            { src: artworkUrl, sizes: '256x256' },
-            { src: artworkUrl, sizes: '384x384' },
-            { src: artworkUrl, sizes: '512x512' },
-          ],
-        })
-        logMediaSession('metadata updated:', currentTrack.title)
-      } catch (e) {
-        logMediaSession('failed to set metadata:', e)
-      }
-    }
+    logMediaSession('registering action handlers (mount)')
 
     try {
       navigator.mediaSession.setActionHandler('play', () => {
@@ -131,9 +119,50 @@ export function AudioEngine() {
     } catch (e) {
       logMediaSession('MediaSession action handler error:', e)
     }
+
+    // No cleanup needed — handlers persist for the app lifetime.
+  }, []) // ← intentionally empty: mount-only
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // 2. MediaSession — Metadata (updated whenever the track changes)
+  // ─────────────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('mediaSession' in navigator)) return
+    if (!currentTrack) return
+
+    const artistName =
+      typeof currentTrack.artist === 'string'
+        ? currentTrack.artist
+        : currentTrack.artist?.name || 'LocalSpo'
+    const albumName =
+      typeof currentTrack.album === 'string'
+        ? currentTrack.album
+        : currentTrack.album?.name || 'LocalSpo Music'
+    const artworkUrl = currentTrack.thumbnail || currentTrack.thumbnailUrl || '/logo.png'
+
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: currentTrack.title,
+        artist: artistName,
+        album: albumName,
+        artwork: [
+          { src: artworkUrl, sizes: '96x96' },
+          { src: artworkUrl, sizes: '128x128' },
+          { src: artworkUrl, sizes: '192x192' },
+          { src: artworkUrl, sizes: '256x256' },
+          { src: artworkUrl, sizes: '384x384' },
+          { src: artworkUrl, sizes: '512x512' },
+        ],
+      })
+      logMediaSession('metadata updated:', currentTrack.title)
+    } catch (e) {
+      logMediaSession('failed to set metadata:', e)
+    }
   }, [currentTrack])
 
-  // 2. Sync MediaSession Playback State with actual audio state
+  // ─────────────────────────────────────────────────────────────────────────
+  // 3. MediaSession — Playback state (synced from actual isPlaying in store)
+  // ─────────────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (typeof window === 'undefined' || !('mediaSession' in navigator)) return
     try {
@@ -141,7 +170,10 @@ export function AudioEngine() {
     } catch {}
   }, [isPlaying])
 
-  // 3. Initialize YouTube IFrame API script for fallback playback
+  // ─────────────────────────────────────────────────────────────────────────
+  // 4. YouTube IFrame API bridge (fallback / direct YT video playback)
+  //    Kept as-is from the original implementation.
+  // ─────────────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (typeof window === 'undefined') return
 
@@ -172,22 +204,10 @@ export function AudioEngine() {
               onReady: () => {
                 isYtReadyRef.current = true
                 logAudio('YouTube IFrame Engine Bridge Ready')
-                const target = currentTargetVideoIdRef.current || usePlayerStore.getState().currentTrack?.videoId
-                if (usePlayerStore.getState().isPlaying && target && activeEngine === 'yt') {
-                  ytPlayerRef.current.loadVideoById(target)
-                }
               },
               onStateChange: (event: { data: number }) => {
-                // 1 = PLAYING, 2 = PAUSED, 0 = ENDED, 3 = BUFFERING, 5 = CUED
+                // 1=PLAYING 2=PAUSED 0=ENDED 3=BUFFERING 5=CUED
                 if (event.data === 1) {
-                  setIsPlaying(true)
-                  setIsLoading(false)
-                  if (ytPlayerRef.current?.getDuration) {
-                    const dur = ytPlayerRef.current.getDuration()
-                    if (dur > 0) setDuration(dur)
-                  }
-                } else if (event.data === 2) {
-                  setIsPlaying(false)
                   setIsLoading(false)
                 } else if (event.data === 0) {
                   logAudio('YouTube player ended track')
@@ -200,8 +220,6 @@ export function AudioEngine() {
                   }
                 } else if (event.data === 3) {
                   setIsLoading(true)
-                } else if (event.data === 5) {
-                  setIsLoading(false)
                 }
               },
               onError: (err: unknown) => {
@@ -221,27 +239,38 @@ export function AudioEngine() {
     } else {
       window.onYouTubeIframeAPIReady = initYt
     }
-  }, [next, setDuration, setIsLoading, setIsPlaying, activeEngine])
+  }, [next, setIsLoading]) // stable store actions only
 
-  // 4. Setup Native HTML5 Audio Element & Background Lifecycle Handlers
+  // ─────────────────────────────────────────────────────────────────────────
+  // 5. HTML5 Audio Element — Event Listeners
+  //
+  //    KEY FIX: `currentTrack` is NOT in the dependency array.
+  //    Listeners use `usePlayerStore.getState()` to read live state
+  //    instead of closed-over stale values.
+  //    This prevents listener teardown/re-add on every track change,
+  //    which was causing onEnded to fire against wrong closures.
+  // ─────────────────────────────────────────────────────────────────────────
   useEffect(() => {
     const el = audioRef.current
     if (!el) return
     const audio: HTMLAudioElement = el
 
     function onTimeUpdate() {
-      if (activeEngine !== 'html5') return
       setCurrentTime(audio.currentTime)
 
-      // Sync lock-screen position state every second
+      // Sync lock-screen position state (throttled to once/second)
       const now = Date.now()
-      if (now - lastPositionUpdateRef.current > 1000 && 'mediaSession' in navigator && typeof navigator.mediaSession.setPositionState === 'function') {
+      if (
+        now - lastPositionUpdateRef.current > 1000 &&
+        'mediaSession' in navigator &&
+        typeof navigator.mediaSession.setPositionState === 'function'
+      ) {
         lastPositionUpdateRef.current = now
         try {
           if (audio.duration > 0 && !isNaN(audio.duration) && isFinite(audio.duration)) {
             navigator.mediaSession.setPositionState({
               duration: audio.duration,
-              playbackRate: 1,
+              playbackRate: audio.playbackRate || 1,
               position: Math.min(audio.currentTime, audio.duration),
             })
           }
@@ -249,21 +278,21 @@ export function AudioEngine() {
       }
 
       if (audio.currentTime >= 5 && !hasLoggedHistoryRef.current) {
-        logHistory(audio.currentTime, audio.duration || currentTrack?.duration || 0)
+        logHistory(audio.currentTime, audio.duration || usePlayerStore.getState().currentTrack?.duration || 0)
       }
     }
 
     function onLoadedMetadata() {
-      if (activeEngine !== 'html5') return
       logAudio('loadedmetadata: duration =', audio.duration)
       setDuration(audio.duration || 0)
       setIsLoading(false)
+
       if ('mediaSession' in navigator && typeof navigator.mediaSession.setPositionState === 'function') {
         try {
           if (audio.duration > 0 && !isNaN(audio.duration) && isFinite(audio.duration)) {
             navigator.mediaSession.setPositionState({
               duration: audio.duration,
-              playbackRate: 1,
+              playbackRate: audio.playbackRate || 1,
               position: audio.currentTime,
             })
           }
@@ -272,53 +301,55 @@ export function AudioEngine() {
     }
 
     function onCanPlay() {
-      if (activeEngine === 'html5') {
-        logAudio('canplay event: readyState =', audio.readyState)
-        setIsLoading(false)
-        if (usePlayerStore.getState().isPlaying && audio.paused) {
-          logAudio('triggering play from canplay')
-          const p = audio.play()
-          if (p !== undefined) {
-            playPromiseRef.current = p
-            p.then(() => {
-              logAudio('play resolved from canplay')
-            }).catch((err) => {
-              console.error('[AUDIO] canplay play rejected:', err?.name, err?.message)
-            })
-          }
-        }
-      }
+      logAudio('canplay event: readyState =', audio.readyState)
+      setIsLoading(false)
     }
 
     function onPlay() {
-      if (activeEngine === 'html5') {
-        logAudio('playing confirmed for:', currentTrack?.title)
-        setIsPlaying(true)
-        setIsLoading(false)
-        if ('mediaSession' in navigator) {
-          try { navigator.mediaSession.playbackState = 'playing' } catch {}
-        }
+      logAudio('playing confirmed')
+      setIsPlaying(true)
+      setIsLoading(false)
+      if ('mediaSession' in navigator) {
+        try { navigator.mediaSession.playbackState = 'playing' } catch {}
+      }
+
+      // Update position state on play event for immediate lock-screen display
+      if ('mediaSession' in navigator && typeof navigator.mediaSession.setPositionState === 'function') {
+        try {
+          if (audio.duration > 0 && !isNaN(audio.duration) && isFinite(audio.duration)) {
+            navigator.mediaSession.setPositionState({
+              duration: audio.duration,
+              playbackRate: audio.playbackRate || 1,
+              position: Math.min(audio.currentTime, audio.duration),
+            })
+          }
+        } catch {}
       }
     }
 
     function onPause() {
-      if (activeEngine === 'html5') {
-        logAudio('paused:', currentTrack?.title)
-        setIsPlaying(false)
-        if ('mediaSession' in navigator) {
-          try { navigator.mediaSession.playbackState = 'paused' } catch {}
-        }
+      // KEY FIX: If we are in the middle of a track switch (isSwitchingRef=true),
+      // this pause was triggered by our own audio.pause() call in the STOP phase.
+      // Do NOT update the store — we still want to play the next track.
+      if (isSwitchingRef.current) {
+        logAudio('pause during track switch — ignoring store update')
+        return
+      }
+      logAudio('paused (user/browser initiated)')
+      setIsPlaying(false)
+      if ('mediaSession' in navigator) {
+        try { navigator.mediaSession.playbackState = 'paused' } catch {}
       }
     }
 
     function onEnded() {
-      if (activeEngine !== 'html5') return
-      logAudio('ended:', currentTrack?.title)
+      logAudio('ended')
       const currentRepeat = usePlayerStore.getState().repeat
       if (currentRepeat === 'one') {
         audio.currentTime = 0
         const p = audio.play()
         if (p !== undefined) {
+          playPromiseRef.current = p
           p.catch((err) => {
             if (err?.name !== 'AbortError') console.error('[AUDIO] Repeat play error:', err)
           })
@@ -329,26 +360,23 @@ export function AudioEngine() {
     }
 
     function onWaiting() {
-      if (activeEngine === 'html5') {
-        logAudio('waiting for audio chunks')
-        setIsLoading(true)
-      }
+      logAudio('waiting for audio chunks')
+      setIsLoading(true)
     }
 
     function onPlaying() {
-      if (activeEngine === 'html5') {
-        logAudio('playing event fired')
-        setIsLoading(false)
-      }
+      logAudio('playing event fired')
+      setIsLoading(false)
     }
 
     function onError() {
-      if (activeEngine === 'html5') {
-        const err = audio.error
-        console.error('[AUDIO] error event:', currentTrack?.title, 'code:', err?.code, err?.message)
-        setIsLoading(false)
-        setIsPlaying(false)
-      }
+      // Ignore errors that fire after we intentionally changed the src
+      if (isSwitchingRef.current) return
+      const err = audio.error
+      const track = usePlayerStore.getState().currentTrack
+      console.error('[AUDIO] error event:', track?.title, 'code:', err?.code, err?.message)
+      setIsLoading(false)
+      setIsPlaying(false)
     }
 
     audio.addEventListener('timeupdate', onTimeUpdate)
@@ -372,7 +400,10 @@ export function AudioEngine() {
       audio.removeEventListener('playing', onPlaying)
       audio.removeEventListener('error', onError)
     }
-  }, [activeEngine, currentTrack, next, setCurrentTime, setDuration, setIsLoading, setIsPlaying])
+  // KEY FIX: `currentTrack` removed from deps — listeners read live state
+  // via usePlayerStore.getState(). Only stable setters & next() here.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [next, setCurrentTime, setDuration, setIsLoading, setIsPlaying])
 
   function logHistory(progress: number, duration: number) {
     if (hasLoggedHistoryRef.current) return
@@ -402,82 +433,69 @@ export function AudioEngine() {
       fetch('/api/history', {
         method: 'POST',
         headers,
-        body: JSON.stringify({
-          track,
-          progress,
-          duration,
-        }),
+        body: JSON.stringify({ track, progress, duration }),
       }).catch((err) => logAudio('Failed to log history:', err))
     })
   }
 
-  // 5. YouTube Timer for progress tracking (only when activeEngine === 'yt')
-  useEffect(() => {
-    if (activeEngine !== 'yt') return
-
-    const timer = setInterval(() => {
-      if (ytPlayerRef.current && isYtReadyRef.current && isPlaying) {
-        try {
-          if (typeof ytPlayerRef.current.getCurrentTime === 'function') {
-            const time = ytPlayerRef.current.getCurrentTime()
-            const dur = ytPlayerRef.current.getDuration()
-            if (typeof time === 'number') {
-              setCurrentTime(time)
-              if (time >= 5) {
-                logHistory(time, dur || currentTrack?.duration || 0)
-              }
-            }
-            if (typeof dur === 'number' && dur > 0) {
-              setDuration(dur)
-            }
-          }
-        } catch {}
-      }
-    }, 250)
-
-    return () => clearInterval(timer)
-  }, [activeEngine, isPlaying, currentTrack, setCurrentTime, setDuration])
-
-  // 6. Centralized Atomic Track Switching (STOP -> LOAD -> PLAY with Generation/Token Protection)
+  // ─────────────────────────────────────────────────────────────────────────
+  // 6. Atomic Track Switching: STOP → LOAD → PLAY
+  //
+  //    KEY FIXES:
+  //    - isSwitchingRef prevents spurious onPause from updating the store
+  //    - audioRequestIdRef (generation counter) discards stale requests
+  //    - Removed lastLoadedTrackIdRef guard (used reqId instead)
+  //    - Await pending playPromise before pause to avoid AbortError
+  //    - currentVideoIdRef updated only after src is set (guards effect #7)
+  // ─────────────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!currentTrack) return
-    const trackId = currentTrack.id
-
-    // Prevent duplicate loading if same track ID
-    if (lastLoadedTrackIdRef.current === trackId) return
-    lastLoadedTrackIdRef.current = trackId
 
     const audio = audioRef.current
     const reqId = ++audioRequestIdRef.current
 
-    logAudio('stop previous track')
+    logAudio('loading track:', currentTrack.title, '| reqId:', reqId)
 
-    // 1. ATOMIC STOP: Pause and reset previous position immediately
-    if (audio) {
+    // ── STOP PHASE ──────────────────────────────────────────────────────────
+    // Signal to onPause that this pause is intentional (track switch).
+    isSwitchingRef.current = true
+    currentVideoIdRef.current = null
+    hasLoggedHistoryRef.current = false
+    setCurrentTime(0)
+    setIsLoading(true)
+
+    async function stopPrevious() {
+      if (!audio) return
+
+      // Await the pending play() promise before pausing to avoid AbortError.
+      if (playPromiseRef.current) {
+        try {
+          await playPromiseRef.current
+        } catch {
+          // Ignore — already handled in the play() .catch()
+        }
+        playPromiseRef.current = null
+      }
+
       try {
         audio.pause()
         audio.currentTime = 0
       } catch {}
     }
-    if (ytPlayerRef.current?.pauseVideo) {
-      try { ytPlayerRef.current.pauseVideo() } catch {}
-    }
-    setCurrentTime(0)
-    hasLoggedHistoryRef.current = false
-    currentTargetVideoIdRef.current = null
 
+    // Safety timer: if loading takes > 5s, clear loading state.
     const safetyTimer = setTimeout(() => {
       if (reqId === audioRequestIdRef.current) {
         setIsLoading(false)
       }
-    }, 4500)
+    }, 5000)
 
     async function loadTrack() {
       if (!currentTrack) return
-      setIsLoading(true)
-      logAudio('loading:', currentTrack.title)
 
-      // Use existing track matching & resolver architecture
+      await stopPrevious()
+
+      // ── RESOLVE VIDEO ID ────────────────────────────────────────────────
       let targetVideoId = isYouTubeVideoId(currentTrack.videoId) ? currentTrack.videoId : undefined
 
       if (!targetVideoId) {
@@ -488,10 +506,18 @@ export function AudioEngine() {
 
         if (!targetVideoId) {
           try {
-            const artistName = typeof currentTrack.artist === 'string' ? currentTrack.artist : currentTrack.artist?.name || ''
+            const artistName =
+              typeof currentTrack.artist === 'string'
+                ? currentTrack.artist
+                : currentTrack.artist?.name || ''
             const query = `${currentTrack.title} ${artistName}`
             const searchRes = await fetch(`/api/search?q=${encodeURIComponent(query)}&type=songs`)
-            if (reqId !== audioRequestIdRef.current) return
+
+            // Discard if a newer request came in
+            if (reqId !== audioRequestIdRef.current) {
+              logAudio('discarding stale resolution | reqId:', reqId)
+              return
+            }
 
             const searchJson = await searchRes.json()
             if (reqId !== audioRequestIdRef.current) return
@@ -519,31 +545,41 @@ export function AudioEngine() {
         }
       }
 
-      // Race condition check: Ensure this is still the latest requested track
-      if (reqId !== audioRequestIdRef.current || !targetVideoId) {
-        if (!targetVideoId && reqId === audioRequestIdRef.current) {
-          console.warn('[AudioEngine] Failed to resolve videoId for track:', currentTrack.title)
-          setIsLoading(false)
-        }
+      // Final stale-request check before touching the audio element
+      if (reqId !== audioRequestIdRef.current) {
+        logAudio('discarding stale load | reqId:', reqId)
         return
       }
 
-      currentTargetVideoIdRef.current = targetVideoId
+      if (!targetVideoId) {
+        console.warn('[AudioEngine] Failed to resolve videoId for:', currentTrack.title)
+        isSwitchingRef.current = false
+        setIsLoading(false)
+        setIsPlaying(false)
+        return
+      }
 
-      // 2. ATOMIC LOAD & PLAY
+      // ── LOAD PHASE ──────────────────────────────────────────────────────
       if (audio) {
         const streamUrl = `/api/stream/${targetVideoId}`
         logAudio('source assigned:', streamUrl)
+
+        // Set the source — currentVideoIdRef is set HERE so the play/pause
+        // sync effect (#7) knows the audio element is ready for this track.
         audio.src = streamUrl
+        currentVideoIdRef.current = targetVideoId
+
+        // Clear switching flag AFTER src is set so that any load-induced
+        // events (emptied, etc.) don't falsely update store state.
+        isSwitchingRef.current = false
 
         logAudio('play requested:', {
           src: audio.src,
           readyState: audio.readyState,
-          networkState: audio.networkState,
           paused: audio.paused,
-          currentTime: audio.currentTime,
         })
 
+        // Only play if the store still says we should play
         const { isPlaying: shouldPlay } = usePlayerStore.getState()
         if (shouldPlay && reqId === audioRequestIdRef.current) {
           const p = audio.play()
@@ -552,15 +588,21 @@ export function AudioEngine() {
             p.then(() => {
               logAudio('play resolved successfully')
             }).catch((err) => {
-              console.error('[AUDIO] play rejected:', err?.name, err?.message)
-              console.error('[AUDIO] Current source:', audio.currentSrc || audio.src)
-              console.error('[AUDIO] Media Error details:', audio.error)
+              if (err?.name === 'NotAllowedError') {
+                console.warn('[AUDIO] User interaction required before playback.')
+                setIsPlaying(false)
+              } else if (err?.name !== 'AbortError') {
+                console.error('[AUDIO] play rejected:', err?.name, err?.message)
+                console.error('[AUDIO] Current source:', audio.currentSrc || audio.src)
+              }
             })
           }
         }
+      } else {
+        isSwitchingRef.current = false
       }
 
-      // Preload next track
+      // ── PRELOAD NEXT ─────────────────────────────────────────────────────
       const { queue, currentIndex } = usePlayerStore.getState()
       if (queue && queue.length > 0) {
         const nextTrack = queue[currentIndex + 1]
@@ -578,29 +620,41 @@ export function AudioEngine() {
 
     loadTrack()
 
-    return () => clearTimeout(safetyTimer)
-  }, [currentTrack?.id, setIsLoading, setIsPlaying])
-
-  // 7. Sync Play / Pause State
-  useEffect(() => {
-    if (activeEngine === 'yt') {
-      if (ytPlayerRef.current) {
-        try {
-          if (isPlaying) {
-            ytPlayerRef.current.playVideo()
-          } else {
-            ytPlayerRef.current.pauseVideo()
-          }
-        } catch {}
-      }
-      return
+    return () => {
+      clearTimeout(safetyTimer)
     }
+  // Depend only on track ID — not the whole track object.
+  // This ensures switching A→B→A correctly re-triggers (reqId handles it).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentTrack?.id, setCurrentTime, setIsLoading, setIsPlaying])
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // 7. Play / Pause Sync
+  //
+  //    KEY FIXES:
+  //    - Guard with isSwitchingRef (don't play mid-switch)
+  //    - Guard with currentVideoIdRef (don't play if src not yet set)
+  //    - Await pending promise before pause to avoid AbortError
+  // ─────────────────────────────────────────────────────────────────────────
+  useEffect(() => {
     const audio = audioRef.current
     if (!audio) return
 
+    // Don't touch audio during track switch — the loadTrack() function
+    // in effect #6 will call play() itself once the src is ready.
+    if (isSwitchingRef.current) return
+
+    // Don't play if the audio element doesn't yet have a valid source
+    // for the current track. Effect #6 will set it and call play().
+    if (!currentVideoIdRef.current) return
+
     if (isPlaying) {
-      if (audio.src && audio.src !== window.location.href && audio.paused) {
+      // Only resume if actually paused and has a valid src
+      if (
+        audio.src &&
+        audio.src !== window.location.href &&
+        audio.paused
+      ) {
         logAudio('resuming audio.play()')
         const p = audio.play()
         if (p !== undefined) {
@@ -608,72 +662,76 @@ export function AudioEngine() {
           p.then(() => {
             logAudio('resume play resolved')
           }).catch((err) => {
-            console.error('[AUDIO] resume play rejected:', err?.name, err?.message)
+            if (err?.name === 'NotAllowedError') {
+              console.warn('[AUDIO] User interaction required before playback.')
+              setIsPlaying(false)
+            } else if (err?.name !== 'AbortError') {
+              console.error('[AUDIO] resume play rejected:', err?.name, err?.message)
+            }
           })
         }
       }
     } else {
       if (!audio.paused) {
+        // Safely pause: await pending promise first to avoid AbortError
         if (playPromiseRef.current) {
           playPromiseRef.current
             .then(() => {
               if (!usePlayerStore.getState().isPlaying && !audio.paused) {
+                logAudio('pause after promise resolved')
                 audio.pause()
               }
             })
             .catch(() => {})
         } else {
+          logAudio('pausing audio')
           audio.pause()
         }
       }
     }
-  }, [isPlaying, activeEngine])
+  }, [isPlaying, setIsPlaying])
 
-  // 8. Handle Seek
+  // ─────────────────────────────────────────────────────────────────────────
+  // 8. Seek
+  // ─────────────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (seekTo === null) return
 
-    if (activeEngine === 'yt' && ytPlayerRef.current) {
-      try {
-        ytPlayerRef.current.seekTo(seekTo, true)
-      } catch {}
-      clearSeek()
-      return
-    }
-
     if (audioRef.current) {
+      logAudio('seeking to:', seekTo)
       audioRef.current.currentTime = seekTo
       clearSeek()
     }
-  }, [seekTo, activeEngine, clearSeek])
+  }, [seekTo, clearSeek])
 
-  // 9. Sync Volume / Mute
+  // ─────────────────────────────────────────────────────────────────────────
+  // 9. Volume / Mute
+  // ─────────────────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (activeEngine === 'yt' && ytPlayerRef.current) {
-      try {
-        if (muted) {
-          ytPlayerRef.current.mute()
-        } else {
-          ytPlayerRef.current.unMute()
-          ytPlayerRef.current.setVolume(Math.round(volume * 100))
-        }
-      } catch {}
-      return
-    }
-
     if (audioRef.current) {
       audioRef.current.volume = volume
       audioRef.current.muted = muted
     }
-  }, [volume, muted, activeEngine])
+  }, [volume, muted])
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // Render
+  // ─────────────────────────────────────────────────────────────────────────
   return (
     <>
-      {/* Clean persistent native HTML5 Audio element for background playback */}
+      {/*
+        Persistent native HTML5 Audio element.
+        - playsInline: required for iOS to not go fullscreen
+        - preload="auto": start buffering immediately
+        - x-webkit-airplay: enables AirPlay & helps iOS background audio
+        - style: visually hidden but NOT display:none (display:none kills some
+          browsers' ability to continue audio in background)
+      */}
       <audio
         ref={audioRef}
         playsInline
         preload="auto"
+        x-webkit-airplay="allow"
         style={{
           position: 'fixed',
           top: 0,
@@ -685,6 +743,7 @@ export function AudioEngine() {
         }}
       />
 
+      {/* YouTube IFrame bridge (hidden) */}
       <div
         style={{
           position: 'fixed',

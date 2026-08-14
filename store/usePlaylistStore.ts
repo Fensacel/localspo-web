@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { persist, createJSONStorage } from 'zustand/middleware'
 import type { StreamSong } from '@/types/streamSong'
 
 export interface ImportedPlaylist {
@@ -28,6 +28,58 @@ interface PlaylistState {
   updateSongResolvedVideoId: (songId: string, videoId: string) => void
   clearPlaylists: () => void
   setPlaylists: (playlists: ImportedPlaylist[]) => void
+}
+
+/**
+ * Normalise a raw playlist entry that may come from the desktop app format
+ * (which stores songIds: string[] instead of songs: StreamSong[]).
+ * For desktop-format playlists we have no song metadata available locally,
+ * so we create minimal stub StreamSong objects so the array is non-empty
+ * and the playlist is visible. Song details will be fetched/resolved on play.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function normalisePlaylist(raw: any): ImportedPlaylist {
+  // Resolve cover URL (desktop may store a local file path under coverPath)
+  const coverUrl: string | undefined =
+    raw.coverUrl ||
+    (typeof raw.coverPath === 'string' && raw.coverPath.startsWith('http')
+      ? raw.coverPath
+      : undefined)
+
+  // If songs array is already present and non-empty, use it as-is.
+  if (Array.isArray(raw.songs) && raw.songs.length > 0) {
+    return {
+      id: raw.id,
+      name: raw.name,
+      coverUrl,
+      songs: raw.songs as StreamSong[],
+      importedAt: raw.importedAt,
+      createdAt: raw.createdAt,
+      userId: raw.userId,
+    }
+  }
+
+  // Desktop format: convert songIds to minimal StreamSong stubs.
+  const songIds: string[] = Array.isArray(raw.songIds) ? raw.songIds : []
+  const songs: StreamSong[] = songIds.map((sid) => ({
+    id: sid,
+    title: sid, // placeholder — will be replaced once resolved
+    artist: '',
+    album: '',
+    coverUrl: '',
+    durationMs: 0,
+    resolvedVideoId: undefined,
+  }))
+
+  return {
+    id: raw.id,
+    name: raw.name,
+    coverUrl,
+    songs,
+    importedAt: raw.importedAt,
+    createdAt: raw.createdAt,
+    userId: raw.userId,
+  }
 }
 
 export const usePlaylistStore = create<PlaylistState>()(
@@ -116,6 +168,17 @@ export const usePlaylistStore = create<PlaylistState>()(
     }),
     {
       name: 'localspo-user-playlists',
+      storage: createJSONStorage(() => localStorage),
+      // Migrate persisted data from desktop-app format (songIds) to web format (songs)
+      migrate: (persistedState, version) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const state = persistedState as any
+        if (Array.isArray(state?.playlists)) {
+          state.playlists = state.playlists.map(normalisePlaylist)
+        }
+        return state
+      },
+      version: 2,
     }
   )
 )

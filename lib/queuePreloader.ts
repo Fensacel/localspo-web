@@ -38,12 +38,6 @@ export function preloadAudioStream(videoId: string) {
   if (!videoId || !isYouTubeVideoId(videoId) || preloadedAudioStreams.has(videoId) || getCachedWarmedStreams().has(videoId)) return
   preloadedAudioStreams.add(videoId)
   saveWarmedStream(videoId)
-
-  try {
-    fetch(`/api/stream/${videoId}`, {
-      headers: { Range: 'bytes=0-131072' },
-    }).catch(() => {})
-  } catch {}
 }
 
 /**
