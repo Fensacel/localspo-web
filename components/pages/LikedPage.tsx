@@ -12,7 +12,7 @@ export function LikedPage() {
   const { play, shuffle, toggleShuffle } = usePlayerStore()
 
   const { data: tracks, isLoading } = useQuery<Track[]>({
-    queryKey: ['liked'],
+    queryKey: ['liked', user?.id],
     queryFn: async () => {
       const res = await fetch('/api/liked')
       const json = await res.json()

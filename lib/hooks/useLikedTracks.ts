@@ -9,12 +9,13 @@ export function useLikedTracks() {
   const queryClient = useQueryClient()
 
   const { data: likedTracks = [] } = useQuery<Track[]>({
-    queryKey: ['liked'],
+    queryKey: ['liked', user?.id],
     queryFn: async () => {
       if (!user) return []
       const res = await fetch('/api/liked')
       const json = await res.json()
       if (!json.success || !Array.isArray(json.data)) return []
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return json.data.map((item: any) => {
         if (item.metadata_json) return item.metadata_json as Track
         if (item.title && item.artist) return item as Track

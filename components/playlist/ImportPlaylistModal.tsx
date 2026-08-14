@@ -6,6 +6,8 @@ import { useRouter } from 'next/navigation'
 import { usePlaylistStore } from '@/store/usePlaylistStore'
 import { useLibraryStore } from '@/store/useLibraryStore'
 import { useFollowedPlaylistStore } from '@/store/useFollowedPlaylistStore'
+import { useAuthStore } from '@/store/authStore'
+import { useQueryClient } from '@tanstack/react-query'
 import type { StreamSong } from '@/types/streamSong'
 
 interface ImportPlaylistModalProps {
@@ -20,6 +22,8 @@ export function ImportPlaylistModal({ isOpen, onClose, onSuccess }: ImportPlayli
   const [statusText, setStatusText] = useState('')
   const [error, setError] = useState<string | null>(null)
   const router = useRouter()
+  const { user } = useAuthStore()
+  const queryClient = useQueryClient()
 
   const { addImportedPlaylist } = usePlaylistStore()
   const { addSongs } = useLibraryStore()
@@ -111,12 +115,13 @@ export function ImportPlaylistModal({ isOpen, onClose, onSuccess }: ImportPlayli
         console.warn('[ImportPlaylistModal] Database sync skipped or user guest:', dbErr)
       }
 
-      // 4. Add playlist to usePlaylistStore with matching assigned ID
+      // 4. Add playlist to usePlaylistStore with matching assigned ID & user ID
       addImportedPlaylist(
         playlistInfo.name || 'Imported Playlist',
         playlistInfo.coverUrl || '',
         songs,
-        assignedId
+        assignedId,
+        user?.id
       )
 
       // 5. Register Auto-Follow & Live Sync in useFollowedPlaylistStore
@@ -128,6 +133,7 @@ export function ImportPlaylistModal({ isOpen, onClose, onSuccess }: ImportPlayli
         songs.length
       )
 
+      queryClient.invalidateQueries({ queryKey: ['playlists'] })
       setStatusText('Selesai!')
       onSuccess?.()
       onClose()

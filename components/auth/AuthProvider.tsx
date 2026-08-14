@@ -3,6 +3,7 @@
 import { useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useAuthStore } from '@/store/authStore'
+import { usePlaylistStore } from '@/store/usePlaylistStore'
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const { setUser, setProfile, setInitialized, logout } = useAuthStore()
@@ -20,6 +21,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       async (event, session) => {
         if (event === 'SIGNED_OUT') {
           logout()
+          usePlaylistStore.getState().clearPlaylists()
+          if (typeof window !== 'undefined') {
+            localStorage.removeItem('localspo_history')
+          }
         } else if (session?.user) {
           setUser(session.user)
           fetchProfile(session.user.id, supabase)

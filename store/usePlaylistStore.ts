@@ -9,16 +9,25 @@ export interface ImportedPlaylist {
   songs: StreamSong[]
   importedAt?: string
   createdAt?: number
+  userId?: string
 }
 
 interface PlaylistState {
   playlists: ImportedPlaylist[]
-  addImportedPlaylist: (name: string, coverUrl: string, songs: StreamSong[], customId?: string) => void
+  addImportedPlaylist: (
+    name: string,
+    coverUrl: string,
+    songs: StreamSong[],
+    customId?: string,
+    userId?: string
+  ) => void
   addSongToPlaylist: (playlistId: string, song: StreamSong) => void
   removeSongFromPlaylist: (playlistId: string, songId: string) => void
   removePlaylist: (id: string) => void
   updatePlaylist: (id: string, updates: { name?: string; coverUrl?: string }) => void
   updateSongResolvedVideoId: (songId: string, videoId: string) => void
+  clearPlaylists: () => void
+  setPlaylists: (playlists: ImportedPlaylist[]) => void
 }
 
 export const usePlaylistStore = create<PlaylistState>()(
@@ -26,7 +35,7 @@ export const usePlaylistStore = create<PlaylistState>()(
     (set) => ({
       playlists: [],
 
-      addImportedPlaylist: (name, coverUrl, songs, customId) => {
+      addImportedPlaylist: (name, coverUrl, songs, customId, userId) => {
         const id = customId || `pl-${Date.now()}`
         const newPlaylist: ImportedPlaylist = {
           id,
@@ -34,6 +43,7 @@ export const usePlaylistStore = create<PlaylistState>()(
           coverUrl,
           songs,
           importedAt: new Date().toISOString(),
+          userId,
         }
 
         set((state) => ({
@@ -100,9 +110,12 @@ export const usePlaylistStore = create<PlaylistState>()(
           })),
         }))
       },
+
+      clearPlaylists: () => set({ playlists: [] }),
+      setPlaylists: (playlists) => set({ playlists }),
     }),
     {
-      name: 'playlist-storage',
+      name: 'localspo-user-playlists',
     }
   )
 )

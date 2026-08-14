@@ -34,7 +34,7 @@ export function LibraryPage() {
   const creatorAvatar = profile?.avatarUrl ?? user?.user_metadata?.avatar_url
 
   const { data: serverPlaylists, isLoading, refetch } = useQuery({
-    queryKey: ['playlists'],
+    queryKey: ['playlists', user?.id],
     queryFn: async () => {
       const res = await fetch('/api/playlists')
       const json = await res.json()
@@ -47,7 +47,7 @@ export function LibraryPage() {
     if (!newTitle.trim()) return
     const name = newTitle.trim()
 
-    // Add locally to usePlaylistStore
+    // Add to usePlaylistStore with user.id
     const newId = crypto.randomUUID()
     usePlaylistStore.setState((state) => ({
       playlists: [
@@ -56,18 +56,24 @@ export function LibraryPage() {
           name,
           songs: [],
           createdAt: Date.now(),
+          userId: user?.id,
         },
         ...state.playlists,
       ],
     }))
 
-    // Also attempt server sync if logged in
+    // Save to Supabase Cloud Database if logged in
     if (user) {
-      fetch('/api/playlists', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: name }),
-      }).then(() => refetch()).catch(() => {})
+      try {
+        await fetch('/api/playlists', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: name }),
+        })
+        refetch()
+      } catch (e) {
+        console.error('Failed to sync new playlist to Supabase:', e)
+      }
     }
 
     setNewTitle('')
@@ -75,9 +81,15 @@ export function LibraryPage() {
     showToast(`Playlist "${name}" berhasil dibuat!`, 'success')
   }
 
+  // Filter local playlists for the current user
+  const userScopedLocalPlaylists = localPlaylists.filter((pl) => {
+    if (user) return pl.userId === user.id || !pl.userId
+    return !pl.userId
+  })
+
   // Combine local imported playlists and server playlists with strict deduplication
   const combinedPlaylists = [
-    ...localPlaylists.map((pl) => ({
+    ...userScopedLocalPlaylists.map((pl) => ({
       id: pl.id,
       title: pl.name,
       coverUrl: pl.coverUrl,
@@ -87,7 +99,7 @@ export function LibraryPage() {
     ...(serverPlaylists ?? [])
       .filter(
         (spl: any) =>
-          !localPlaylists.some(
+          !userScopedLocalPlaylists.some(
             (lpl) =>
               lpl.id === spl.id ||
               lpl.name.toLowerCase().trim() === spl.title?.toLowerCase().trim()
