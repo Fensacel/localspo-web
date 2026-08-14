@@ -3,6 +3,35 @@ import { fetchLyrics as fetchLrclib } from '@/lib/lyrics/lrclib'
 import { fetchNetEaseLyrics } from '@/lib/lyrics/netease'
 import { fetchLyricsOvh } from '@/lib/lyrics/lyricsovh'
 import type { Lyrics } from '@/types/lyrics'
+import fs from 'fs'
+import path from 'path'
+import { parseLRC } from '@/lib/lyrics/lrcParser'
+import { normalizeString } from '@/lib/matcher'
+
+function getLocalLyrics(track: string, artist?: string): Lyrics | null {
+  const normTrack = normalizeString(track)
+  if (normTrack.includes('iconic heart')) {
+    try {
+      const lrcPath = path.join(process.cwd(), 'public', 'Hearts2Hearts - ICONIC HEART.lrc')
+      if (fs.existsSync(lrcPath)) {
+        const content = fs.readFileSync(lrcPath, 'utf-8')
+        const lines = parseLRC(content)
+        const plain = lines.map((l) => l.text).join('\n')
+        return {
+          id: 'local-hearts2hearts-iconic-heart',
+          trackName: 'ICONIC HEART',
+          artistName: 'Hearts2Hearts',
+          synced: true,
+          lines,
+          plain,
+        }
+      }
+    } catch (e) {
+      console.warn('[getLocalLyrics] Error reading local LRC:', e)
+    }
+  }
+  return null
+}
 
 export async function GET(request: NextRequest) {
   const sp = request.nextUrl.searchParams
@@ -20,7 +49,11 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Query providers in parallel (NetEase Cloud Music & LRCLIB)
+    // 1. Check if local matched LRC exists
+    const localResult = getLocalLyrics(track, artist)
+    if (localResult) {
+      return NextResponse.json({ success: true, data: localResult })
+    }
     const [netEaseLyrics, lrclibLyrics] = await Promise.allSettled([
       fetchNetEaseLyrics({ artist, track }),
       fetchLrclib({ artist, track, album, duration }),

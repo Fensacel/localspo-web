@@ -7,6 +7,7 @@ import { pickBestMatch } from '@/lib/playSong'
 import { createClient } from '@/lib/supabase/client'
 import type { Track } from '@/types/track'
 import { preloadAudioStream, preloadSingleSong, preloadQueue, isYouTubeVideoId } from '@/lib/queuePreloader'
+import { getKnownTrackOverride } from '@/lib/matcher'
 
 declare global {
   interface Window {
@@ -434,7 +435,12 @@ export function AudioEngine() {
       if (!currentTrack) return
       setIsLoading(true)
 
-      let targetVideoId = isYouTubeVideoId(currentTrack.videoId) ? currentTrack.videoId : undefined
+      const artistName = typeof currentTrack.artist === 'string' ? currentTrack.artist : currentTrack.artist?.name || ''
+      const overrideId = getKnownTrackOverride(currentTrack.title, artistName)
+
+      let targetVideoId =
+        (overrideId && isYouTubeVideoId(overrideId) ? overrideId : undefined) ||
+        (isYouTubeVideoId(currentTrack.videoId) ? currentTrack.videoId : undefined)
 
       // Resolve videoId if missing or invalid
       if (!targetVideoId) {
@@ -445,7 +451,6 @@ export function AudioEngine() {
 
         if (!targetVideoId) {
           try {
-            const artistName = typeof currentTrack.artist === 'string' ? currentTrack.artist : currentTrack.artist?.name || ''
             const query = `${currentTrack.title} ${artistName}`
             const searchRes = await fetch(`/api/search?q=${encodeURIComponent(query)}&type=songs`)
             if (reqId !== audioRequestIdRef.current) return
@@ -457,12 +462,30 @@ export function AudioEngine() {
             const topResult: Track | null = searchJson.data?.topResult?.data || null
             const candidates: Track[] = topResult ? [topResult, ...songsList] : songsList
 
-            const matched = pickBestMatch(candidates, {
+            let matched = pickBestMatch(candidates, {
               id: currentTrack.id,
               title: currentTrack.title,
               artist: artistName,
               durationMs: (currentTrack.duration || 0) * 1000,
             })
+
+            if (!matched) {
+              try {
+                const fallbackRes = await fetch(`/api/search?q=${encodeURIComponent(`${currentTrack.title} ${artistName} audio`)}&type=songs`)
+                if (fallbackRes.ok && reqId === audioRequestIdRef.current) {
+                  const fbJson = await fallbackRes.json()
+                  const fbSongs: Track[] = fbJson.data?.songs || []
+                  const fbTop: Track | null = fbJson.data?.topResult?.data || null
+                  const fbCandidates: Track[] = fbTop ? [fbTop, ...fbSongs] : fbSongs
+                  matched = pickBestMatch(fbCandidates, {
+                    id: currentTrack.id,
+                    title: currentTrack.title,
+                    artist: artistName,
+                    durationMs: (currentTrack.duration || 0) * 1000,
+                  })
+                }
+              } catch {}
+            }
 
             const bestVideoId = matched?.videoId || matched?.id
             if (bestVideoId && isYouTubeVideoId(bestVideoId)) {

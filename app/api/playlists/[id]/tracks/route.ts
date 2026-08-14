@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { ensureProfile } from '@/lib/supabase/ensureProfile'
+import { getKnownTrackOverride } from '@/lib/matcher'
+import { isYouTubeVideoId } from '@/lib/queuePreloader'
 
 export async function POST(
   request: NextRequest,
@@ -41,10 +43,16 @@ export async function POST(
       ? track.album
       : (track.album?.name || null)
 
+    const overrideId = getKnownTrackOverride(track.title, artistName)
+    const validVideoId =
+      overrideId ||
+      (isYouTubeVideoId(track.videoId) ? String(track.videoId) : null) ||
+      (isYouTubeVideoId(track.id) ? String(track.id) : null)
+
     return {
       playlist_id: id,
       track_id: String(track.id || track.videoId || `track_${index}`),
-      video_id: track.videoId ? String(track.videoId) : String(track.id || ''),
+      video_id: validVideoId,
       title: track.title || 'Untitled',
       artist: artistName,
       album: albumName,

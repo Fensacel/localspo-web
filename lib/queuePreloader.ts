@@ -1,6 +1,7 @@
 import type { Track } from '@/types/track'
 import type { StreamSong } from '@/types/streamSong'
 import { pickBestMatch } from '@/lib/playSong'
+import { getKnownTrackOverride } from '@/lib/matcher'
 import { useLibraryStore } from '@/store/useLibraryStore'
 import { usePlayerStore } from '@/store/playerStore'
 import { usePlaylistStore } from '@/store/usePlaylistStore'
@@ -75,6 +76,16 @@ export async function preloadSingleSong(
   try {
     const artistName = typeof song.artist === 'string' ? song.artist : song.artist?.name || ''
     const durationMs = song.durationMs ?? (song.duration ? song.duration * 1000 : 0)
+
+    const overrideId = getKnownTrackOverride(song.title, artistName)
+    if (overrideId && isYouTubeVideoId(overrideId)) {
+      useLibraryStore.getState().updateResolvedVideoId(songId, overrideId)
+      usePlayerStore.getState().updateQueueSongVideoId(songId, overrideId)
+      usePlaylistStore.getState().updateSongResolvedVideoId?.(songId, overrideId)
+      preloadAudioStream(overrideId)
+      return overrideId
+    }
+
     const query = `${song.title} ${artistName}`
 
     const res = await fetch(`/api/search?q=${encodeURIComponent(query)}&type=songs`)
@@ -83,12 +94,30 @@ export async function preloadSingleSong(
     const topResult: Track | null = json.data?.topResult?.data || null
     const candidates: Track[] = topResult ? [topResult, ...songsList] : songsList
 
-    const matched = pickBestMatch(candidates, {
+    let matched = pickBestMatch(candidates, {
       id: songId,
       title: song.title,
       artist: artistName,
       durationMs,
     })
+
+    if (!matched) {
+      try {
+        const fallbackRes = await fetch(`/api/search?q=${encodeURIComponent(`${song.title} ${artistName} audio`)}&type=songs`)
+        if (fallbackRes.ok) {
+          const fbJson = await fallbackRes.json()
+          const fbSongs: Track[] = fbJson.data?.songs || []
+          const fbTop: Track | null = fbJson.data?.topResult?.data || null
+          const fbCandidates: Track[] = fbTop ? [fbTop, ...fbSongs] : fbSongs
+          matched = pickBestMatch(fbCandidates, {
+            id: songId,
+            title: song.title,
+            artist: artistName,
+            durationMs,
+          })
+        }
+      } catch {}
+    }
 
     const bestVideoId = matched?.videoId || matched?.id
     if (bestVideoId && isYouTubeVideoId(bestVideoId)) {
