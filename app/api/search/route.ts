@@ -20,7 +20,15 @@ export async function GET(request: NextRequest) {
 
   try {
     const data = await searchYTMusic(q)
-    return NextResponse.json({ success: true, data })
+    return NextResponse.json(
+      { success: true, data },
+      {
+        headers: {
+          'Cache-Control': 'public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800',
+          'CDN-Cache-Control': 'max-age=86400',
+        },
+      }
+    )
   } catch (err) {
     console.error('[/api/search]', err)
     return NextResponse.json(

@@ -32,8 +32,7 @@ function saveWarmedStream(videoId: string) {
 }
 
 /**
- * Pre-fetches and warms up the audio stream in browser memory/cache for zero-latency playback.
- * Strictly verifies 11-char YouTube video ID to prevent 400 errors with Spotify IDs.
+ * Pre-fetches only the immediate next track's stream (avoids spamming Cloudflare Workers limits).
  */
 export function preloadAudioStream(videoId: string) {
   if (!videoId || !isYouTubeVideoId(videoId) || preloadedAudioStreams.has(videoId) || getCachedWarmedStreams().has(videoId)) return
@@ -42,13 +41,13 @@ export function preloadAudioStream(videoId: string) {
 
   try {
     fetch(`/api/stream/${videoId}`, {
-      headers: { Range: 'bytes=0-524288' },
+      headers: { Range: 'bytes=0-131072' },
     }).catch(() => {})
   } catch {}
 }
 
 /**
- * Resolves a single song's YouTube video ID in the background and stores it permanently.
+ * Resolves a single song's YouTube video ID in the background and stores it in memory.
  */
 export async function preloadSingleSong(
   song: { id: string; title: string; artist: string | { name?: string }; duration?: number; durationMs?: number; videoId?: string; resolvedVideoId?: string }
@@ -109,7 +108,8 @@ export async function preloadSingleSong(
 }
 
 /**
- * Preloads, resolves video IDs, and warms up streams for ALL songs in a playlist queue.
+ * Smart conservative preloader: Only resolves the IMMEDIATE NEXT 1 or 2 songs
+ * instead of looping through all 100+ songs, preventing Cloudflare Worker limits exhaustion.
  */
 export async function preloadQueue(
   tracks: (Track | StreamSong)[],
@@ -117,39 +117,24 @@ export async function preloadQueue(
 ) {
   if (!tracks || tracks.length === 0) return
 
-  const upcoming = tracks.slice(startIndex)
-  const previous = tracks.slice(0, startIndex)
-  const prioritizedQueue = [...upcoming, ...previous]
+  // Only take next 2 tracks max
+  const upcoming = tracks.slice(startIndex, startIndex + 2)
 
-  const CONCURRENCY = 4
-  let activeIndex = 0
+  for (const track of upcoming) {
+    if (!track) continue
+    const artistName =
+      typeof track.artist === 'string'
+        ? track.artist
+        : track.artist?.name || ''
 
-  async function worker() {
-    while (activeIndex < prioritizedQueue.length) {
-      const track = prioritizedQueue[activeIndex++]
-      if (!track) continue
-
-      const artistName =
-        typeof track.artist === 'string'
-          ? track.artist
-          : track.artist?.name || ''
-
-      const videoId = await preloadSingleSong({
-        id: track.id,
-        title: track.title,
-        artist: artistName,
-        duration: 'duration' in track ? track.duration : undefined,
-        durationMs: 'durationMs' in track ? track.durationMs : undefined,
-        videoId: 'videoId' in track ? track.videoId : undefined,
-        resolvedVideoId: 'resolvedVideoId' in track ? track.resolvedVideoId : undefined,
-      })
-
-      if (videoId && isYouTubeVideoId(videoId)) {
-        preloadAudioStream(videoId)
-      }
-    }
+    await preloadSingleSong({
+      id: track.id,
+      title: track.title,
+      artist: artistName,
+      duration: 'duration' in track ? track.duration : undefined,
+      durationMs: 'durationMs' in track ? track.durationMs : undefined,
+      videoId: 'videoId' in track ? track.videoId : undefined,
+      resolvedVideoId: 'resolvedVideoId' in track ? track.resolvedVideoId : undefined,
+    })
   }
-
-  const workers = Array.from({ length: Math.min(CONCURRENCY, prioritizedQueue.length) }, () => worker())
-  await Promise.allSettled(workers)
 }

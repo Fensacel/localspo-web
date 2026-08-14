@@ -32,6 +32,8 @@ export function AudioEngine() {
   const audioRequestIdRef = useRef<number>(0)
   const playPromiseRef = useRef<Promise<void> | null>(null)
   const lastPositionUpdateRef = useRef<number>(0)
+  const currentTargetVideoIdRef = useRef<string | null>(null)
+  const lastLoadedTrackIdRef = useRef<string | null>(null)
 
   const {
     currentTrack,
@@ -155,8 +157,9 @@ export function AudioEngine() {
               onReady: () => {
                 isYtReadyRef.current = true
                 log('YouTube IFrame Engine Bridge Ready')
-                if (usePlayerStore.getState().isPlaying && usePlayerStore.getState().currentTrack?.videoId) {
-                  ytPlayerRef.current.loadVideoById(usePlayerStore.getState().currentTrack!.videoId)
+                const target = currentTargetVideoIdRef.current || usePlayerStore.getState().currentTrack?.videoId
+                if (usePlayerStore.getState().isPlaying && target) {
+                  ytPlayerRef.current.loadVideoById(target)
                 }
               },
               onStateChange: (event: { data: number }) => {
@@ -275,7 +278,6 @@ export function AudioEngine() {
           })
         }
       } else {
-        // Continuous background play on ended
         next()
       }
     }
@@ -291,14 +293,15 @@ export function AudioEngine() {
     function onError() {
       if (activeEngine === 'html5') {
         const err = audio.error
-        log('HTML5 Audio error (will switch to YouTube Bridge):', err?.code, err?.message)
-        if (currentTrack?.videoId) {
+        log('HTML5 Audio error (falling back to YouTube Bridge):', err?.code, err?.message)
+        const vid = currentTargetVideoIdRef.current || currentTrack?.videoId
+        if (vid) {
           setActiveEngine('yt')
           audio.pause()
           audio.src = ''
           if (ytPlayerRef.current) {
             try {
-              ytPlayerRef.current.loadVideoById(currentTrack.videoId)
+              ytPlayerRef.current.loadVideoById(vid)
               ytPlayerRef.current.playVideo()
             } catch (e) {
               log('YT loadVideoById error:', e)
@@ -396,22 +399,24 @@ export function AudioEngine() {
     return () => clearInterval(timer)
   }, [activeEngine, isPlaying, currentTrack, setCurrentTime, setDuration])
 
-  // 6. Load Track on Track Change
+  // 6. Load Track on Track ID Change
   useEffect(() => {
     if (!currentTrack) return
+    const trackId = currentTrack.id
+
+    // Prevent duplicate loading if same track ID
+    if (lastLoadedTrackIdRef.current === trackId) return
+    lastLoadedTrackIdRef.current = trackId
+
     const audio = audioRef.current
     const reqId = ++audioRequestIdRef.current
 
-    // Instantly stop previous playing track across both engines so skipped track stops immediately
+    // Instantly stop previous playing track
     if (audio) {
-      try {
-        audio.pause()
-      } catch {}
+      try { audio.pause() } catch {}
     }
     if (ytPlayerRef.current?.pauseVideo) {
-      try {
-        ytPlayerRef.current.pauseVideo()
-      } catch {}
+      try { ytPlayerRef.current.pauseVideo() } catch {}
     }
     setCurrentTime(0)
 
@@ -424,7 +429,6 @@ export function AudioEngine() {
     async function loadAudioTrack() {
       if (!currentTrack) return
       setIsLoading(true)
-      setActiveEngine('html5')
 
       let targetVideoId = isYouTubeVideoId(currentTrack.videoId) ? currentTrack.videoId : undefined
 
@@ -461,7 +465,6 @@ export function AudioEngine() {
               if (reqId !== audioRequestIdRef.current) return
               targetVideoId = bestVideoId
               useLibraryStore.getState().updateResolvedVideoId(currentTrack.id, bestVideoId)
-              usePlayerStore.getState().updateQueueSongVideoId(currentTrack.id, bestVideoId)
             }
           } catch (err) {
             console.error('[AudioEngine] Resolution error:', err)
@@ -477,8 +480,10 @@ export function AudioEngine() {
         return
       }
 
+      currentTargetVideoIdRef.current = targetVideoId
       hasLoggedHistoryRef.current = false
 
+      // Try YouTube bridge first if activeEngine is 'yt', otherwise HTML5
       if (activeEngine === 'yt') {
         if (audio) {
           try { audio.pause() } catch {}
@@ -506,7 +511,7 @@ export function AudioEngine() {
             playPromiseRef.current = p
             p.catch((err) => {
               if (err?.name !== 'AbortError') {
-                log('HTML5 play blocked, switching to YouTube Bridge:', err)
+                log('HTML5 play failed, switching to YouTube Bridge:', err)
                 setActiveEngine('yt')
                 if (ytPlayerRef.current && targetVideoId) {
                   ytPlayerRef.current.loadVideoById(targetVideoId)
@@ -518,7 +523,7 @@ export function AudioEngine() {
         }
       }
 
-      // Preload upcoming track and queue
+      // Preload next track
       const { queue, currentIndex } = usePlayerStore.getState()
       if (queue && queue.length > 0) {
         const nextTrack = queue[currentIndex + 1]
@@ -531,14 +536,13 @@ export function AudioEngine() {
             })
           }
         }
-        preloadQueue(queue, currentIndex + 1)
       }
     }
 
     loadAudioTrack()
 
     return () => clearTimeout(safetyTimer)
-  }, [currentTrack?.id, currentTrack?.videoId, activeEngine, setIsLoading, setIsPlaying])
+  }, [currentTrack?.id, activeEngine, setIsLoading, setIsPlaying])
 
   // 7. Sync Play / Pause
   useEffect(() => {
