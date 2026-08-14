@@ -42,8 +42,6 @@ export async function GET(
 
       const upstream = await fetch(url, {
         headers: upstreamHeaders,
-        // @ts-expect-error — Node 18+ / Workers duplex support
-        duplex: 'half',
       })
 
       if (!upstream.ok && upstream.status !== 206) {

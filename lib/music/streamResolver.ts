@@ -91,13 +91,16 @@ export async function resolveStream(videoId: string): Promise<StreamInfo | null>
  */
 async function resolveWithLocalExtractor(videoId: string): Promise<StreamInfo | null> {
   try {
-    // Dynamic import to prevent bundler errors on Cloudflare Workers
-    const cp = await import('child_process').catch(() => null)
-    if (!cp || !cp.exec) return null
+    if (typeof process === 'undefined' || !process.versions?.node || process.env.CF_PAGES) {
+      return null
+    }
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const cp = typeof require !== 'undefined' ? require('child_process') : null
+    if (!cp || typeof cp.exec !== 'function') return null
 
     return new Promise((resolve) => {
       const cmd = `python -m yt_dlp -g -f "140/bestaudio[ext=m4a]/251/bestaudio" "https://www.youtube.com/watch?v=${videoId}"`
-      cp.exec(cmd, { timeout: 8000 }, (err, stdout) => {
+      cp.exec(cmd, { timeout: 8000 }, (err: unknown, stdout: string) => {
         if (err || !stdout) {
           resolve(null)
           return
