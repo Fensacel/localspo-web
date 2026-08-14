@@ -564,10 +564,7 @@ export function AudioEngine() {
         if (p !== undefined) {
           playPromiseRef.current = p
           p.catch((err) => {
-            if (err?.name !== 'AbortError') {
-              log('play failed:', err)
-              setIsPlaying(false)
-            }
+            log('HTML5 play deferred/waiting:', err?.name)
           })
         }
       }
@@ -586,7 +583,7 @@ export function AudioEngine() {
         }
       }
     }
-  }, [isPlaying, activeEngine, setIsPlaying])
+  }, [isPlaying, activeEngine])
 
   // 8. Handle Seek
   useEffect(() => {
@@ -633,7 +630,15 @@ export function AudioEngine() {
         ref={audioRef}
         playsInline
         preload="auto"
-        className="hidden"
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '1px',
+          height: '1px',
+          opacity: 0.001,
+          pointerEvents: 'none',
+        }}
       />
 
       <div
