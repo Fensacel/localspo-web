@@ -36,7 +36,7 @@ export function pickBestMatch(
     return bestMatch
   }
 
-  // Fallback only if candidate title contains target title keywords
+  // Fallback if candidate title contains target title keywords or safe candidate fallback
   const normTarget = normalizeString(song.title)
   if (normTarget.length >= 3) {
     for (const candidate of candidateSongs) {
@@ -47,7 +47,7 @@ export function pickBestMatch(
     }
   }
 
-  return null
+  return bestMatch || candidateSongs[0] || null
 }
 
 let currentPlayRequestId = 0
