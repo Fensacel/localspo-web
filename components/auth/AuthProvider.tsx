@@ -36,11 +36,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { data } = await supabase
       .from('profiles')
       .select('*')
-      .eq('user_id', userId)
+      .eq('id', userId)
       .single()
     if (data) setProfile({
       id: data.id,
-      userId: data.user_id,
+      userId: data.id,
       username: data.username ?? '',
       displayName: data.display_name ?? '',
       email: data.email ?? '',

@@ -626,7 +626,6 @@ export function AudioEngine() {
 
   return (
     <div
-      id="yt-hidden-bridge"
       style={{
         position: 'fixed',
         right: '0px',
@@ -638,6 +637,8 @@ export function AudioEngine() {
         zIndex: -50,
       }}
       aria-hidden="true"
-    />
+    >
+      <div id="yt-hidden-bridge" />
+    </div>
   )
 }

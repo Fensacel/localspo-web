@@ -90,7 +90,7 @@ export function ProfilePage() {
       const { data, error } = await supabase
         .from('profiles')
         .update({ display_name: nameValue.trim() })
-        .eq('user_id', user.id)
+        .eq('id', user.id)
         .select()
         .single()
 

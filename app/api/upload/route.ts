@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
     const { error: dbErr } = await admin
       .from('profiles')
       .update({ [column]: publicUrl })
-      .eq('user_id', user.id)
+      .eq('id', user.id)
 
     if (dbErr) {
       return NextResponse.json({ error: `DB error: ${dbErr.message}` }, { status: 500 })
