@@ -22,8 +22,23 @@ function logAudio(...args: unknown[]) {
   if (isDev) console.log('[AUDIO]', ...args)
 }
 
+function logBG(...args: unknown[]) {
+  if (isDev) console.log('[BG]', ...args)
+}
+
 function logMediaSession(...args: unknown[]) {
   if (isDev) console.log('[MEDIA SESSION]', ...args)
+}
+
+function getAbsoluteMediaUrl(url?: string): string {
+  if (!url) return ''
+  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) {
+    return url
+  }
+  if (typeof window !== 'undefined') {
+    return `${window.location.origin}${url.startsWith('/') ? '' : '/'}${url}`
+  }
+  return url
 }
 
 export function AudioEngine() {
@@ -74,28 +89,53 @@ export function AudioEngine() {
   } = usePlayerStore()
 
   // ─────────────────────────────────────────────────────────────────────────
+  // 0. Page Lifecycle / Background Playback Monitor
+  // ─────────────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+    const onVisibility = () => {
+      logBG('visibility changed')
+      if (document.hidden) {
+        logBG('page hidden')
+      } else {
+        logBG('page visible')
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => document.removeEventListener('visibilitychange', onVisibility)
+  }, [])
+
+  // ─────────────────────────────────────────────────────────────────────────
   // 1. MediaSession — Action Handlers (registered ONCE on mount, never again)
   //    They delegate to the existing store actions — no new queue logic.
   // ─────────────────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (typeof window === 'undefined' || !('mediaSession' in navigator)) return
+    if (typeof window === 'undefined' || !('mediaSession' in navigator)) {
+      logAudio('mediaSession not supported')
+      return
+    }
 
+    logBG('media session supported')
     logMediaSession('registering action handlers (mount)')
 
     try {
       navigator.mediaSession.setActionHandler('play', () => {
+        logBG('media session play')
         logMediaSession('action: play')
         usePlayerStore.getState().resume()
       })
       navigator.mediaSession.setActionHandler('pause', () => {
+        logBG('media session pause')
         logMediaSession('action: pause')
         usePlayerStore.getState().pause()
       })
       navigator.mediaSession.setActionHandler('previoustrack', () => {
+        logBG('media session previous')
         logMediaSession('action: previoustrack')
         usePlayerStore.getState().previous()
       })
       navigator.mediaSession.setActionHandler('nexttrack', () => {
+        logBG('media session next')
         logMediaSession('action: nexttrack')
         usePlayerStore.getState().next()
       })
@@ -116,6 +156,7 @@ export function AudioEngine() {
         usePlayerStore.getState().seek(current + offset)
       })
       navigator.mediaSession.setActionHandler('stop', () => {
+        logBG('media session pause')
         logMediaSession('action: stop')
         usePlayerStore.getState().pause()
       })
@@ -141,7 +182,8 @@ export function AudioEngine() {
       typeof currentTrack.album === 'string'
         ? currentTrack.album
         : currentTrack.album?.name || 'LocalSpo Music'
-    const artworkUrl = currentTrack.thumbnail || currentTrack.thumbnailUrl || '/logo.png'
+    const rawArtwork = currentTrack.thumbnail || currentTrack.thumbnailUrl || '/logo.png'
+    const artworkUrl = getAbsoluteMediaUrl(rawArtwork)
 
     try {
       navigator.mediaSession.metadata = new MediaMetadata({
@@ -157,6 +199,7 @@ export function AudioEngine() {
           { src: artworkUrl, sizes: '512x512' },
         ],
       })
+      logBG('media session metadata updated')
       logMediaSession('metadata updated:', currentTrack.title)
     } catch (e) {
       logMediaSession('failed to set metadata:', e)
@@ -309,6 +352,7 @@ export function AudioEngine() {
     }
 
     function onPlay() {
+      logBG('audio playing')
       logAudio('playing confirmed')
       setIsPlaying(true)
       setIsLoading(false)
@@ -339,6 +383,7 @@ export function AudioEngine() {
         logAudio('pause during track switch or audio error — ignoring store update')
         return
       }
+      logBG('audio paused')
       logAudio('paused (user/browser initiated)')
       setIsPlaying(false)
       if ('mediaSession' in navigator) {
