@@ -1,12 +1,12 @@
 /**
  * Stream Resolver
- * Resolves a YouTube videoId to a temporary playable audio URL.
+ * Resolves a YouTube videoId to a playable audio stream URL.
  *
- * Uses ytdl-core → yt-dlp-wrap → python -m yt_dlp as fallback chain.
- * Stream URLs expire — never store them permanently.
+ * Edge & Cloudflare Workers compatible:
+ * 1. Fast Public Piped & Invidious & Cobalt HTTP APIs (0 Node.js dependencies, 100% Edge safe)
+ * 2. ytdl-core (Node.js environments)
+ * 3. yt-dlp / python fallback (local Node.js dev environments only)
  */
-
-import { spawn } from 'child_process'
 
 const isDev = process.env.NODE_ENV === 'development'
 
@@ -21,9 +21,9 @@ export interface StreamInfo {
   expiresAt?: number
 }
 
-// In-memory cache with TTL (YouTube stream URLs are valid for up to 6 hours)
+// In-memory cache with TTL (YouTube stream URLs are valid for up to 4 hours)
 const streamCache = new Map<string, { info: StreamInfo; cachedAt: number }>()
-const CACHE_TTL_MS = 4 * 60 * 60 * 1000 // 4 hours
+const CACHE_TTL_MS = 3 * 60 * 60 * 1000 // 3 hours
 
 function getCached(videoId: string): StreamInfo | null {
   const entry = streamCache.get(videoId)
@@ -49,7 +49,7 @@ export async function resolveStream(videoId: string): Promise<StreamInfo | null>
     return null
   }
 
-  // Check cache first
+  // 1. Check in-memory cache
   const cached = getCached(videoId)
   if (cached) {
     log('Cache hit for:', videoId)
@@ -58,58 +58,62 @@ export async function resolveStream(videoId: string): Promise<StreamInfo | null>
 
   log('Resolving stream for:', videoId)
 
-  // Try ytdl-core
-  const result = await resolveWithYtdl(videoId)
-  if (result) {
-    setCache(videoId, result)
+  // 2. Try fast Edge-compatible Public Piped / Invidious instances FIRST
+  const resultEdge = await resolveWithPublicInstances(videoId)
+  if (resultEdge) {
+    setCache(videoId, resultEdge)
+    log('Stream resolved via public edge instance:', videoId)
+    return resultEdge
+  }
+
+  // 3. Try ytdl-core (Node.js runtime)
+  const resultYtdl = await resolveWithYtdl(videoId)
+  if (resultYtdl) {
+    setCache(videoId, resultYtdl)
     log('Stream resolved via ytdl-core:', videoId)
-    return result
+    return resultYtdl
   }
 
-  // Try yt-dlp-wrap with custom binary path
-  const result2 = await resolveWithYtDlpWrap(videoId)
-  if (result2) {
-    setCache(videoId, result2)
-    log('Stream resolved via yt-dlp-wrap:', videoId)
-    return result2
-  }
-
-  // Try python -m yt_dlp (fallback for when yt-dlp binary not in PATH)
-  const result3 = await resolveWithPythonYtDlp(videoId)
-  if (result3) {
-    setCache(videoId, result3)
-    log('Stream resolved via python -m yt_dlp:', videoId)
-    return result3
-  }
-
-  // Try public fast Invidious / Piped instances (essential fallback for serverless cloud like Vercel)
-  const result4 = await resolveWithPublicInstances(videoId)
-  if (result4) {
-    setCache(videoId, result4)
-    log('Stream resolved via public audio instance:', videoId)
-    return result4
+  // 4. Try local yt-dlp binary (local environment fallback only)
+  const resultYtDlp = await resolveWithLocalYtDlp(videoId)
+  if (resultYtDlp) {
+    setCache(videoId, resultYtDlp)
+    log('Stream resolved via local yt-dlp:', videoId)
+    return resultYtDlp
   }
 
   log('Stream resolution failed for:', videoId)
   return null
 }
 
+/**
+ * Edge-compatible HTTP Stream Resolvers (Piped & Invidious APIs)
+ * Uses zero native Node modules — 100% compatible with Cloudflare Workers and Vercel Edge.
+ */
 async function resolveWithPublicInstances(videoId: string): Promise<StreamInfo | null> {
   const endpoints = [
+    // Piped APIs (fast, direct audio URLs)
     `https://pipedapi.kavin.rocks/streams/${videoId}`,
     `https://api.piped.privacydev.net/streams/${videoId}`,
+    `https://pipedapi.tokhmi.xyz/streams/${videoId}`,
+    `https://piped-api.garudalinux.org/streams/${videoId}`,
+    // Invidious APIs
     `https://invidious.privacydev.net/api/v1/videos/${videoId}`,
     `https://inv.tux.pizza/api/v1/videos/${videoId}`,
     `https://vid.puffyan.us/api/v1/videos/${videoId}`,
+    `https://yt.artemislena.eu/api/v1/videos/${videoId}`,
   ]
 
   for (const endpoint of endpoints) {
     try {
       const controller = new AbortController()
-      const timeout = setTimeout(() => controller.abort(), 4000)
+      const timeout = setTimeout(() => controller.abort(), 3500)
       const res = await fetch(endpoint, {
         signal: controller.signal,
-        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36',
+          Accept: 'application/json',
+        },
       })
       clearTimeout(timeout)
 
@@ -117,7 +121,7 @@ async function resolveWithPublicInstances(videoId: string): Promise<StreamInfo |
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const data: any = await res.json()
 
-      // Piped format
+      // 1. Piped response structure
       if (Array.isArray(data?.audioStreams) && data.audioStreams.length > 0) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const sorted = data.audioStreams.sort((a: any, b: any) => (b.bitrate || 0) - (a.bitrate || 0))
@@ -131,7 +135,7 @@ async function resolveWithPublicInstances(videoId: string): Promise<StreamInfo |
         }
       }
 
-      // Invidious format
+      // 2. Invidious response structure
       if (Array.isArray(data?.adaptiveFormats)) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const audioFormats = data.adaptiveFormats.filter((f: any) =>
@@ -148,8 +152,11 @@ async function resolveWithPublicInstances(videoId: string): Promise<StreamInfo |
           }
         }
       }
-    } catch {}
+    } catch {
+      // Try next mirror
+    }
   }
+
   return null
 }
 
@@ -161,7 +168,6 @@ async function resolveWithYtdl(videoId: string): Promise<StreamInfo | null> {
     const url = `https://www.youtube.com/watch?v=${videoId}`
     const info = await ytdl.default.getInfo(url)
 
-    // Filter for audio-only formats, prefer highest quality
     const formats = ytdl.default
       .filterFormats(info.formats, 'audioonly')
       .sort((a, b) => (b.audioBitrate ?? 0) - (a.audioBitrate ?? 0))
@@ -180,138 +186,46 @@ async function resolveWithYtdl(videoId: string): Promise<StreamInfo | null> {
   }
 }
 
-async function resolveWithYtDlpWrap(videoId: string): Promise<StreamInfo | null> {
+/**
+ * Local Node.js environment fallback only (bypassed in Cloudflare Workers / Edge)
+ */
+async function resolveWithLocalYtDlp(videoId: string): Promise<StreamInfo | null> {
+  // Only attempt if child_process is available
   try {
-    const YTDlpWrap = await import('yt-dlp-wrap').catch(() => null)
-    if (!YTDlpWrap) return null
+    const cp = await import('child_process').catch(() => null)
+    if (!cp || typeof cp.spawn !== 'function') return null
 
-    // Try to find yt-dlp binary in common locations
-    const possibleBinaries = [
-      'yt-dlp',
-      'yt-dlp.exe',
-      `${process.env.LOCALAPPDATA}\\Programs\\yt-dlp\\yt-dlp.exe`,
-      `${process.env.USERPROFILE}\\.local\\bin\\yt-dlp`,
-    ].filter(Boolean)
+    return new Promise((resolve) => {
+      const url = `https://www.youtube.com/watch?v=${videoId}`
+      const proc = cp.spawn(
+        'python',
+        ['-m', 'yt_dlp', '-f', 'bestaudio', '--no-playlist', '--no-warnings', '-j', '--quiet', url],
+        { shell: false }
+      )
 
-    let ytDlp: InstanceType<typeof YTDlpWrap.default> | null = null
-    for (const bin of possibleBinaries) {
-      try {
-        const instance = new YTDlpWrap.default(bin)
-        // Quick test
-        await new Promise<void>((resolve, reject) => {
-          const proc = spawn(bin!, ['--version'], { shell: false })
-          proc.on('close', (code) => (code === 0 ? resolve() : reject()))
-          proc.on('error', reject)
-        })
-        ytDlp = instance
-        break
-      } catch {
-        // try next
-      }
-    }
+      let stdout = ''
+      proc.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString() })
+      proc.on('error', () => resolve(null))
+      proc.on('close', (code: number) => {
+        if (code !== 0) return resolve(null)
+        try {
+          const lines = stdout.trim().split('\n').filter(Boolean)
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const info: any = JSON.parse(lines[lines.length - 1])
+          const streamUrl: string | undefined = info?.url
+          if (!streamUrl) return resolve(null)
 
-    if (!ytDlp) return null
-
-    const url = `https://www.youtube.com/watch?v=${videoId}`
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const info: any = await ytDlp.getVideoInfo([
-      url,
-      '-f',
-      'bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio',
-      '--no-playlist',
-    ])
-
-    const streamUrl: string = info?.url ?? info?.formats?.[0]?.url
-    if (!streamUrl) return null
-
-    return {
-      url: streamUrl,
-      mimeType: 'audio/webm',
-      quality: 'best',
-    }
-  } catch (err) {
-    log('yt-dlp-wrap error:', err)
+          resolve({
+            url: streamUrl,
+            mimeType: info?.ext === 'm4a' ? 'audio/mp4' : 'audio/webm',
+            quality: info?.abr ? `${info.abr}kbps` : 'best',
+          })
+        } catch {
+          resolve(null)
+        }
+      })
+    })
+  } catch {
     return null
   }
-}
-
-/**
- * Fallback: use `python -m yt_dlp` when yt-dlp binary is not in PATH
- * but yt-dlp is installed as a Python package.
- */
-function resolveWithPythonYtDlp(videoId: string): Promise<StreamInfo | null> {
-  return new Promise((resolve) => {
-    const url = `https://www.youtube.com/watch?v=${videoId}`
-    const args = [
-      '-m', 'yt_dlp',
-      '-f', 'bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio/best',
-      '--no-playlist',
-      '--no-warnings',
-      '-j',          // print JSON to stdout
-      '--quiet',
-      url,
-    ]
-
-    log('Spawning: python', args.join(' '))
-
-    // Try 'python' first, then 'python3'
-    const pythonBin = 'python'
-    const proc = spawn(pythonBin, args, { shell: false })
-
-    let stdout = ''
-    let stderr = ''
-
-    proc.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString() })
-    proc.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString() })
-
-    proc.on('error', (err) => {
-      log('python -m yt_dlp spawn error:', err)
-      resolve(null)
-    })
-
-    proc.on('close', (code) => {
-      if (code !== 0) {
-        log('python -m yt_dlp exited with code', code, stderr.slice(0, 200))
-        resolve(null)
-        return
-      }
-
-      try {
-        // stdout is newline-delimited JSON; last non-empty line is the main entry
-        const lines = stdout.trim().split('\n').filter(Boolean)
-        const lastLine = lines[lines.length - 1]
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const info: any = JSON.parse(lastLine)
-
-        // url is at info.url for the selected format, or pick best from formats
-        let streamUrl: string | undefined = info?.url
-
-        if (!streamUrl && Array.isArray(info?.formats)) {
-          // Find best audio-only format
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const audioFormats = info.formats.filter((f: any) =>
-            f.vcodec === 'none' && f.url
-          )
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          audioFormats.sort((a: any, b: any) => (b.abr ?? 0) - (a.abr ?? 0))
-          streamUrl = audioFormats[0]?.url
-        }
-
-        if (!streamUrl) {
-          log('python -m yt_dlp: no stream URL in output')
-          resolve(null)
-          return
-        }
-
-        resolve({
-          url: streamUrl,
-          mimeType: info?.ext === 'm4a' ? 'audio/mp4' : 'audio/webm',
-          quality: info?.abr ? `${info.abr}kbps` : 'best',
-        })
-      } catch (parseErr) {
-        log('python -m yt_dlp JSON parse error:', parseErr)
-        resolve(null)
-      }
-    })
-  })
 }

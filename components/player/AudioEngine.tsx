@@ -424,6 +424,7 @@ export function AudioEngine() {
     async function loadAudioTrack() {
       if (!currentTrack) return
       setIsLoading(true)
+      setActiveEngine('html5')
 
       let targetVideoId = isYouTubeVideoId(currentTrack.videoId) ? currentTrack.videoId : undefined
 
