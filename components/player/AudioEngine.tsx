@@ -289,7 +289,12 @@ export function AudioEngine() {
     }
 
     function onPause() {
-      if (activeEngine === 'html5') setIsPlaying(false)
+      if (activeEngine === 'html5') {
+        // Only sync pause if store was also set to paused, avoiding background tab sleep interruptions
+        if (!usePlayerStore.getState().isPlaying) {
+          setIsPlaying(false)
+        }
+      }
     }
 
     function onEnded() {
@@ -618,8 +623,7 @@ export function AudioEngine() {
           playPromiseRef.current = p
           p.catch((err) => {
             if (err?.name !== 'AbortError') {
-              log('play failed:', err)
-              setIsPlaying(false)
+              log('play error / background throttle:', err)
             }
           })
         }
