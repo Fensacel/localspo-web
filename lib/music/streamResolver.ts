@@ -65,7 +65,15 @@ export async function resolveStream(videoId: string): Promise<StreamInfo | null>
     return resultVr
   }
 
-  // 3. Fallback to local python yt_dlp if available in local dev
+  // 3. Fallback: TVHTML5 embedded client (different IP signature, often bypasses blocks)
+  const resultTv = await resolveWithTvHtml5(videoId)
+  if (resultTv) {
+    setCache(videoId, resultTv)
+    log('Stream resolved via TVHTML5:', videoId)
+    return resultTv
+  }
+
+  // 4. Fallback to local python yt_dlp if available in local dev
   const resultYtDlp = await resolveWithLocalYtDlp(videoId)
   if (resultYtDlp) {
     setCache(videoId, resultYtDlp)
@@ -127,18 +135,97 @@ async function resolveWithAndroidVr(videoId: string): Promise<StreamInfo | null>
 
     if (audioFormats.length === 0) return null
 
-    // Sort by highest bitrate (highest quality audio)
+    // Prefer audio/mp4 (AAC) — universally supported by all browsers including Safari/iOS.
+    // audio/webm (opus) is NOT supported by Safari, causing MEDIA_ERR_SRC_NOT_SUPPORTED.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    audioFormats.sort((a: any, b: any) => (b.bitrate || 0) - (a.bitrate || 0))
-    const best = audioFormats[0]
+    const mp4Formats = audioFormats.filter((f: any) => f.mimeType?.includes('audio/mp4'))
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const webmFormats = audioFormats.filter((f: any) => !f.mimeType?.includes('audio/mp4'))
+
+    // Sort each group by bitrate descending, pick best mp4 first, fall back to webm
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sortByBitrate = (arr: any[]) => arr.sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))
+    const best = sortByBitrate(mp4Formats)[0] || sortByBitrate(webmFormats)[0]
 
     return {
       url: best.url,
-      mimeType: best.mimeType?.split(';')[0] || 'audio/webm',
+      mimeType: best.mimeType?.split(';')[0] || 'audio/mp4',
       quality: best.bitrate ? `${Math.round(best.bitrate / 1000)}kbps` : '128kbps',
     }
   } catch (err) {
     log('ANDROID_VR resolver error:', err)
+    return null
+  }
+}
+
+/**
+ * TVHTML5_SIMPLY_EMBEDDED_PLAYER — secondary fallback when ANDROID_VR is blocked.
+ * Uses a different client signature that YouTube treats as a TV embed, often
+ * bypassing region/bot blocks that hit the Android VR client.
+ */
+async function resolveWithTvHtml5(videoId: string): Promise<StreamInfo | null> {
+  try {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 8000)
+
+    const res = await fetch('https://www.youtube.com/youtubei/v1/player?prettyPrint=false', {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/538.1 (KHTML, like Gecko) Version/6.0 TV Safari/538.1',
+        'X-YouTube-Client-Name': '85',
+        'X-YouTube-Client-Version': '2.0',
+        'Origin': 'https://www.youtube.com',
+      },
+      body: JSON.stringify({
+        videoId,
+        context: {
+          client: {
+            clientName: 'TVHTML5_SIMPLY_EMBEDDED_PLAYER',
+            clientVersion: '2.0',
+            hl: 'en',
+            gl: 'US',
+          },
+          thirdParty: {
+            embedUrl: 'https://www.youtube.com/',
+          },
+        },
+      }),
+    })
+    clearTimeout(timeout)
+
+    if (!res.ok) return null
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const json: any = await res.json()
+    if (json.playabilityStatus?.status !== 'OK') {
+      log('TVHTML5 playability not OK:', json.playabilityStatus?.status)
+      return null
+    }
+
+    const adaptiveFormats = json.streamingData?.adaptiveFormats || []
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const audioFormats = adaptiveFormats.filter((f: any) =>
+      f.mimeType?.startsWith('audio/') && Boolean(f.url)
+    )
+    if (audioFormats.length === 0) return null
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const mp4Formats = audioFormats.filter((f: any) => f.mimeType?.includes('audio/mp4'))
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const webmFormats = audioFormats.filter((f: any) => !f.mimeType?.includes('audio/mp4'))
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sortByBitrate = (arr: any[]) => arr.sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))
+    const best = sortByBitrate(mp4Formats)[0] || sortByBitrate(webmFormats)[0]
+
+    return {
+      url: best.url,
+      mimeType: best.mimeType?.split(';')[0] || 'audio/mp4',
+      quality: best.bitrate ? `${Math.round(best.bitrate / 1000)}kbps` : '128kbps',
+    }
+  } catch (err) {
+    log('TVHTML5 resolver error:', err)
     return null
   }
 }
