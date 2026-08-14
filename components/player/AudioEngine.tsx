@@ -122,13 +122,9 @@ export function AudioEngine() {
   useEffect(() => {
     if (typeof window === 'undefined' || !('mediaSession' in navigator)) return
     try {
-      if (!currentTrack) {
-        navigator.mediaSession.playbackState = 'none'
-      } else {
-        navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused'
-      }
+      navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused'
     } catch {}
-  }, [isPlaying, currentTrack])
+  }, [isPlaying])
 
   // 3. Initialize YouTube IFrame API script for fallback playback
   useEffect(() => {
