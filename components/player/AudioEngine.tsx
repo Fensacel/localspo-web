@@ -531,7 +531,20 @@ export function AudioEngine() {
       currentTargetVideoIdRef.current = targetVideoId
       hasLoggedHistoryRef.current = false
 
-      if (audio) {
+      if (activeEngine === 'yt') {
+        if (audio) {
+          try { audio.pause(); audio.src = '' } catch {}
+        }
+        if (ytPlayerRef.current) {
+          try {
+            ytPlayerRef.current.loadVideoById(targetVideoId)
+            const { isPlaying: shouldPlay } = usePlayerStore.getState()
+            if (shouldPlay) ytPlayerRef.current.playVideo()
+          } catch (e) {
+            log('YT load error:', e)
+          }
+        }
+      } else if (audio) {
         const streamUrl = `/api/stream/${targetVideoId}`
         if (!audio.src.endsWith(streamUrl)) {
           audio.src = streamUrl
@@ -545,7 +558,14 @@ export function AudioEngine() {
             playPromiseRef.current = p
             p.catch((err) => {
               if (err?.name !== 'AbortError') {
-                log('HTML5 play error:', err)
+                log('HTML5 play error (falling back to YouTube bridge):', err)
+                setActiveEngine('yt')
+                if (ytPlayerRef.current && targetVideoId) {
+                  try {
+                    ytPlayerRef.current.loadVideoById(targetVideoId)
+                    ytPlayerRef.current.playVideo()
+                  } catch {}
+                }
               }
             })
           }
