@@ -76,16 +76,15 @@ export async function GET(
 
     const responseHeaders: HeadersInit = {
       'Content-Type': contentType,
-      'Cache-Control': 'public, max-age=14400, s-maxage=86400, stale-while-revalidate=86400',
-      'CDN-Cache-Control': 'max-age=86400',
+      'Accept-Ranges': 'bytes',
       'Access-Control-Allow-Origin': '*',
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
     }
     if (contentLength) responseHeaders['Content-Length'] = contentLength
     if (contentRange) responseHeaders['Content-Range'] = contentRange
-    if (acceptRanges) responseHeaders['Accept-Ranges'] = acceptRanges
 
     return new NextResponse(upstream.body, {
-      status: upstream.status,
+      status: upstream.status || 200,
       headers: responseHeaders,
     })
   }

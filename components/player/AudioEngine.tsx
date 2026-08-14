@@ -345,23 +345,9 @@ export function AudioEngine() {
     function onError() {
       if (activeEngine === 'html5') {
         const err = audio.error
-        console.error('[AUDIO] error event:', currentTrack?.title, err?.code, err?.message)
-        // Fallback to YT if source cannot be decoded/played natively
-        if (err?.code === 4) {
-          const vid = currentTargetVideoIdRef.current || currentTrack?.videoId
-          if (vid && ytPlayerRef.current) {
-            setActiveEngine('yt')
-            audio.pause()
-            try {
-              ytPlayerRef.current.loadVideoById(vid)
-              ytPlayerRef.current.playVideo()
-            } catch (e) {
-              logAudio('YT loadVideoById error:', e)
-            }
-          }
-        } else {
-          setIsLoading(false)
-        }
+        console.error('[AUDIO] error event:', currentTrack?.title, 'code:', err?.code, err?.message)
+        setIsLoading(false)
+        setIsPlaying(false)
       }
     }
 
