@@ -82,7 +82,74 @@ export async function resolveStream(videoId: string): Promise<StreamInfo | null>
     return result3
   }
 
+  // Try public fast Invidious / Piped instances (essential fallback for serverless cloud like Vercel)
+  const result4 = await resolveWithPublicInstances(videoId)
+  if (result4) {
+    setCache(videoId, result4)
+    log('Stream resolved via public audio instance:', videoId)
+    return result4
+  }
+
   log('Stream resolution failed for:', videoId)
+  return null
+}
+
+async function resolveWithPublicInstances(videoId: string): Promise<StreamInfo | null> {
+  const endpoints = [
+    `https://pipedapi.kavin.rocks/streams/${videoId}`,
+    `https://api.piped.privacydev.net/streams/${videoId}`,
+    `https://invidious.privacydev.net/api/v1/videos/${videoId}`,
+    `https://inv.tux.pizza/api/v1/videos/${videoId}`,
+    `https://vid.puffyan.us/api/v1/videos/${videoId}`,
+  ]
+
+  for (const endpoint of endpoints) {
+    try {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 4000)
+      const res = await fetch(endpoint, {
+        signal: controller.signal,
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+      })
+      clearTimeout(timeout)
+
+      if (!res.ok) continue
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data: any = await res.json()
+
+      // Piped format
+      if (Array.isArray(data?.audioStreams) && data.audioStreams.length > 0) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const sorted = data.audioStreams.sort((a: any, b: any) => (b.bitrate || 0) - (a.bitrate || 0))
+        const best = sorted[0]
+        if (best?.url) {
+          return {
+            url: best.url,
+            mimeType: best.mimeType || 'audio/webm',
+            quality: best.quality || '128kbps',
+          }
+        }
+      }
+
+      // Invidious format
+      if (Array.isArray(data?.adaptiveFormats)) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const audioFormats = data.adaptiveFormats.filter((f: any) =>
+          f.type?.startsWith('audio/') && f.url
+        )
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        audioFormats.sort((a: any, b: any) => (b.bitrate || 0) - (a.bitrate || 0))
+        const best = audioFormats[0]
+        if (best?.url) {
+          return {
+            url: best.url,
+            mimeType: best.type?.split(';')[0] || 'audio/webm',
+            quality: best.audioQuality || 'best',
+          }
+        }
+      }
+    } catch {}
+  }
   return null
 }
 

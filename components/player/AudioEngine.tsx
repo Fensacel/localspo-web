@@ -231,11 +231,9 @@ export function AudioEngine() {
 
   // 5. Setup Native HTML5 Audio Element
   useEffect(() => {
-    if (!audioRef.current) {
-      audioRef.current = new Audio()
-      audioRef.current.preload = 'metadata'
-    }
-    const audio = audioRef.current
+    const el = audioRef.current
+    if (!el) return
+    const audio: HTMLAudioElement = el
 
     function onTimeUpdate() {
       if (activeEngine !== 'html5') return
@@ -625,20 +623,31 @@ export function AudioEngine() {
   }, [volume, muted, activeEngine])
 
   return (
-    <div
-      style={{
-        position: 'fixed',
-        right: '0px',
-        bottom: '0px',
-        width: '240px',
-        height: '180px',
-        opacity: 0.001,
-        pointerEvents: 'none',
-        zIndex: -50,
-      }}
-      aria-hidden="true"
-    >
-      <div id="yt-hidden-bridge" />
-    </div>
+    <>
+      {/* Physical HTML5 Audio with playsInline & preload for mobile lock screen & background playback */}
+      <audio
+        ref={audioRef}
+        playsInline
+        preload="auto"
+        crossOrigin="anonymous"
+        style={{ position: 'fixed', opacity: 0, pointerEvents: 'none', zIndex: -100 }}
+      />
+
+      <div
+        style={{
+          position: 'fixed',
+          right: '0px',
+          bottom: '0px',
+          width: '240px',
+          height: '180px',
+          opacity: 0.001,
+          pointerEvents: 'none',
+          zIndex: -50,
+        }}
+        aria-hidden="true"
+      >
+        <div id="yt-hidden-bridge" />
+      </div>
+    </>
   )
 }
