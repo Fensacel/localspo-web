@@ -53,6 +53,27 @@ export function AudioEngine() {
     clearSeek,
   } = usePlayerStore()
 
+  // Global mobile audio unlock on first user gesture
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const unlockAudio = () => {
+      const audio = audioRef.current
+      if (audio && (!audio.src || audio.paused)) {
+        try {
+          audio.load()
+        } catch {}
+      }
+    }
+    window.addEventListener('touchstart', unlockAudio, { passive: true, once: true })
+    window.addEventListener('pointerdown', unlockAudio, { passive: true, once: true })
+    window.addEventListener('click', unlockAudio, { passive: true, once: true })
+    return () => {
+      window.removeEventListener('touchstart', unlockAudio)
+      window.removeEventListener('pointerdown', unlockAudio)
+      window.removeEventListener('click', unlockAudio)
+    }
+  }, [])
+
   // 1. Setup MediaSession API for lock-screen, Android notification bar & background controls
   useEffect(() => {
     if (typeof window === 'undefined' || !('mediaSession' in navigator)) return
@@ -510,26 +531,12 @@ export function AudioEngine() {
       currentTargetVideoIdRef.current = targetVideoId
       hasLoggedHistoryRef.current = false
 
-      // Try YouTube bridge first if activeEngine is 'yt', otherwise HTML5
-      if (activeEngine === 'yt') {
-        if (audio) {
-          try { audio.pause() } catch {}
-        }
-        if (ytPlayerRef.current) {
-          try {
-            ytPlayerRef.current.loadVideoById(targetVideoId)
-            ytPlayerRef.current.playVideo()
-          } catch (e) {
-            log('YT load error:', e)
-          }
-        }
-      } else if (audio) {
-        if (ytPlayerRef.current?.pauseVideo) {
-          try { ytPlayerRef.current.pauseVideo() } catch {}
-        }
+      if (audio) {
         const streamUrl = `/api/stream/${targetVideoId}`
-        audio.src = streamUrl
-        audio.load()
+        if (!audio.src.endsWith(streamUrl)) {
+          audio.src = streamUrl
+          audio.load()
+        }
 
         const { isPlaying: shouldPlay } = usePlayerStore.getState()
         if (shouldPlay && reqId === audioRequestIdRef.current) {
@@ -538,12 +545,7 @@ export function AudioEngine() {
             playPromiseRef.current = p
             p.catch((err) => {
               if (err?.name !== 'AbortError') {
-                log('HTML5 play failed, switching to YouTube Bridge:', err)
-                setActiveEngine('yt')
-                if (ytPlayerRef.current && targetVideoId) {
-                  ytPlayerRef.current.loadVideoById(targetVideoId)
-                  ytPlayerRef.current.playVideo()
-                }
+                log('HTML5 play error:', err)
               }
             })
           }
