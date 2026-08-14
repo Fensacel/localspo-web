@@ -27,7 +27,7 @@ export interface Track {
 
   streamUrl?: string
 
-  source: 'ytmusic' | 'spotify' | 'local'
+  source: 'ytmusic' | 'spotify' | 'local' | 'recommendation'
 
   explicit?: boolean
   year?: number
