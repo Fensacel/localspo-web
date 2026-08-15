@@ -41,8 +41,11 @@ function mapToStreamSong(track: any, index: number, defaultCoverUrl: string): St
 
   const coverUrl =
     track.coverArt?.sources?.[0]?.url ||
+    track.albumOfTrack?.coverArt?.sources?.[0]?.url ||
     track.album?.images?.[0]?.url ||
+    track.album?.coverArt?.sources?.[0]?.url ||
     track.image ||
+    track.thumbnail ||
     defaultCoverUrl ||
     ''
 
