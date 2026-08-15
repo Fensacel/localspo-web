@@ -10,7 +10,7 @@ export default function TestBgAudioPage() {
       <audio
         controls
         autoPlay
-        src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg"
+        src="https://actions.google.com/sounds/v1/crowds/battle_agony_moans.ogg"
         className="w-full max-w-md"
       />
     </div>
