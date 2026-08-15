@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { Play } from 'lucide-react'
 import { useState } from 'react'
 
@@ -43,7 +44,7 @@ export function AlbumCard({ title, subtitle, imageUrl, onClick, href }: AlbumCar
   )
 
   if (href) {
-    return <a href={href}>{content}</a>
+    return <Link href={href}>{content}</Link>
   }
   return content
 }
