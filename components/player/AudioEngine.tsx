@@ -212,9 +212,13 @@ export function AudioEngine() {
   useEffect(() => {
     if (typeof window === 'undefined' || !('mediaSession' in navigator)) return
     try {
-      navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused'
+      if (!currentTrack) {
+        navigator.mediaSession.playbackState = 'none'
+      } else {
+        navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused'
+      }
     } catch {}
-  }, [isPlaying])
+  }, [isPlaying, currentTrack])
 
   // ─────────────────────────────────────────────────────────────────────────
   // 4. YouTube IFrame API bridge (fallback / direct YT video playback)
