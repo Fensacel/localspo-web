@@ -704,6 +704,19 @@ export function AudioEngine() {
       }
     }
 
+    // Diagnostic pause call stack logging
+    if (audio && !('pauseTraced' in audio)) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const originalPause = audio.pause.bind(audio)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(audio as any).pause = function () {
+        console.trace('[audio] pause() dipanggil dari sini | document.hidden:', document.hidden)
+        return originalPause()
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(audio as any).pauseTraced = true
+    }
+
     loadTrack()
 
     return () => {
