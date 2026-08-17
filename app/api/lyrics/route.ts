@@ -31,23 +31,14 @@ export async function GET(request: NextRequest) {
     const lrclibResult: Lyrics | null =
       lrclibLyrics.status === 'fulfilled' ? lrclibLyrics.value : null
 
-    // Choose best synced lyrics
-    // If NetEase has granular synced lines (e.g. phrase-by-phrase for K-Pop / Asian / Pop), prioritize it
+    // Prioritize LRCLIB first for original song lyrics
+    // (NetEase cloudsearch can return wrong song matches for query terms like "ILLIT It's Me")
     let chosen: Lyrics | null = null
 
-    if (netEaseResult?.synced && netEaseResult.lines.length > 0) {
-      if (lrclibResult?.synced && lrclibResult.lines.length > 0) {
-        // Compare granularity: NetEase usually splits into individual phrases like Spotify Musixmatch
-        if (netEaseResult.lines.length >= lrclibResult.lines.length) {
-          chosen = netEaseResult
-        } else {
-          chosen = lrclibResult
-        }
-      } else {
-        chosen = netEaseResult
-      }
-    } else if (lrclibResult?.synced && lrclibResult.lines.length > 0) {
+    if (lrclibResult?.synced && lrclibResult.lines.length > 0) {
       chosen = lrclibResult
+    } else if (netEaseResult?.synced && netEaseResult.lines.length > 0) {
+      chosen = netEaseResult
     } else if (lrclibResult?.plain) {
       chosen = lrclibResult
     } else if (netEaseResult?.plain) {

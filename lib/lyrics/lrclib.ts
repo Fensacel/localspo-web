@@ -108,16 +108,16 @@ function scoreLrclibItem(
     }
   }
 
-  // 4. Prefer Native Script (Japanese/Kanji/Kana/Hangul/Chinese) over Pure Romaji uploads
-  if (isRomanizedText(trackName) || isRomanizedText(albumName)) {
-    score -= 300
-  }
-  if (hasNativeScript(lyricsText)) {
-    score += 400 // Massive bonus for original Kanji/Kana/Hangul script
-  } else {
-    // If lyrics text is purely Latin/ASCII (Romaji), penalize heavily so native script wins
-    score -= 300
-  }
+    // 4. Prefer Native Script (Japanese/Kanji/Kana/Hangul/Chinese) over English translations/pure Romaji uploads
+    if (isRomanizedText(trackName) || isRomanizedText(albumName)) {
+      score -= 300
+    }
+    if (hasNativeScript(lyricsText)) {
+      score += 600 // Massive bonus for original Kanji/Kana/Hangul script
+    } else {
+      // If lyrics text lacks native script (e.g. English translation or Romaji), penalize
+      score -= 300
+    }
 
   return score
 }
@@ -135,7 +135,16 @@ export async function fetchLyrics(params: {
 
     let plainFallback: Lyrics | null = null
 
-    // Strategy 1: Direct /get with exact parameters
+    // Strategy 1: Search first to score candidates (gives priority to native Hangul/Kanji/Kana script over English translation uploads)
+    const searchResult = await searchLyrics({
+      artist: params.artist,
+      track: cleanTrack || originalTrack,
+      album: params.album,
+      duration: params.duration,
+    })
+    if (searchResult?.synced) return searchResult
+
+    // Strategy 2: Direct /get with exact parameters as fallback
     if (params.duration) {
       try {
         const sp = new URLSearchParams({
@@ -150,16 +159,9 @@ export async function fetchLyrics(params: {
         })
         if (res.ok) {
           const data: LrclibResponse = await res.json()
-          const lyricsText = (data?.syncedLyrics || '') + '\n' + (data?.plainLyrics || '')
           if (data?.syncedLyrics) {
             const normalized = normalizeLrclibResponse(data)
-            // Only return directly if it has native script or isn't a pure Romaji track
-            if (normalized?.synced && (hasNativeScript(lyricsText) || !isRomanizedText(data.trackName))) {
-              return normalized
-            }
-            if (normalized?.synced && !plainFallback) {
-              plainFallback = normalized
-            }
+            if (normalized?.synced) return normalized
           } else if (data?.plainLyrics) {
             if (!plainFallback) plainFallback = normalizeLrclibResponse(data)
           }
@@ -168,15 +170,6 @@ export async function fetchLyrics(params: {
         console.warn('LRCLIB direct /get failed:', err)
       }
     }
-
-    // Strategy 2: Search with clean track & find synced lyrics
-    const searchResult = await searchLyrics({
-      artist: params.artist,
-      track: cleanTrack || originalTrack,
-      album: params.album,
-      duration: params.duration,
-    })
-    if (searchResult?.synced) return searchResult
 
     // Strategy 3: Search with original track (keeps version tags like 10 Minute Version)
     if (cleanTrack !== originalTrack) {

@@ -122,11 +122,17 @@ export function AudioEngine() {
       navigator.mediaSession.setActionHandler('play', () => {
         logBG('media session play')
         logMediaSession('action: play')
+        if (audioRef.current && audioRef.current.paused) {
+          audioRef.current.play().catch(() => {})
+        }
         usePlayerStore.getState().resume()
       })
       navigator.mediaSession.setActionHandler('pause', () => {
         logBG('media session pause')
         logMediaSession('action: pause')
+        if (audioRef.current && !audioRef.current.paused) {
+          audioRef.current.pause()
+        }
         usePlayerStore.getState().pause()
       })
       navigator.mediaSession.setActionHandler('previoustrack', () => {
@@ -379,10 +385,9 @@ export function AudioEngine() {
     }
 
     function onPause() {
-      // If we are in the middle of a track switch, audio error, or page is hidden (mobile screen lock / background transition),
-      // do NOT update the store to false, allowing background audio / mediaSession controls to keep working or resume smoothly.
-      if (isSwitchingRef.current || audio.error || document.hidden) {
-        logAudio('pause during track switch, audio error, or document hidden — ignoring store update')
+      // If we are in the middle of a track switch or audio error, do NOT update store to false.
+      if (isSwitchingRef.current || audio.error) {
+        logAudio('pause during track switch or audio error — ignoring store update')
         return
       }
       logBG('audio paused')
@@ -881,14 +886,16 @@ export function AudioEngine() {
         playsInline
         preload="auto"
         x-webkit-airplay="allow"
+        aria-hidden="true"
         style={{
           position: 'fixed',
-          top: '-9999px',
-          left: '-9999px',
-          width: '300px',
-          height: '40px',
+          bottom: '0px',
+          left: '0px',
+          width: '1px',
+          height: '1px',
           opacity: 0.01,
           pointerEvents: 'none',
+          zIndex: -1,
         }}
       />
 
