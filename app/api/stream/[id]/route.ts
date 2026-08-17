@@ -36,7 +36,6 @@ export async function GET(
         'User-Agent': UPSTREAM_UA,
         'Accept': '*/*',
         'Accept-Encoding': 'identity',
-        'Connection': 'keep-alive',
       }
       if (range) upstreamHeaders['Range'] = range
 

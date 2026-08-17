@@ -146,24 +146,38 @@ export function AudioEngine() {
         usePlayerStore.getState().next()
       })
       navigator.mediaSession.setActionHandler('seekto', (details) => {
-        if (details.seekTime !== undefined) {
+        if (details.seekTime !== undefined && details.seekTime !== null) {
           logMediaSession('action: seekto', details.seekTime)
+          if (audioRef.current) {
+            audioRef.current.currentTime = details.seekTime
+          }
           usePlayerStore.getState().seek(details.seekTime)
         }
       })
       navigator.mediaSession.setActionHandler('seekbackward', (details) => {
         const offset = details.seekOffset || 10
-        const current = usePlayerStore.getState().currentTime
-        usePlayerStore.getState().seek(Math.max(0, current - offset))
+        const current = audioRef.current ? audioRef.current.currentTime : usePlayerStore.getState().currentTime
+        const newTime = Math.max(0, current - offset)
+        if (audioRef.current) {
+          audioRef.current.currentTime = newTime
+        }
+        usePlayerStore.getState().seek(newTime)
       })
       navigator.mediaSession.setActionHandler('seekforward', (details) => {
         const offset = details.seekOffset || 10
-        const current = usePlayerStore.getState().currentTime
-        usePlayerStore.getState().seek(current + offset)
+        const current = audioRef.current ? audioRef.current.currentTime : usePlayerStore.getState().currentTime
+        const newTime = current + offset
+        if (audioRef.current) {
+          audioRef.current.currentTime = newTime
+        }
+        usePlayerStore.getState().seek(newTime)
       })
       navigator.mediaSession.setActionHandler('stop', () => {
-        logBG('media session pause')
+        logBG('media session stop')
         logMediaSession('action: stop')
+        if (audioRef.current) {
+          audioRef.current.pause()
+        }
         usePlayerStore.getState().pause()
       })
     } catch (e) {
@@ -528,46 +542,24 @@ export function AudioEngine() {
 
     logAudio('loading track:', currentTrack.title, '| reqId:', reqId)
 
-    // ── STOP PHASE ──────────────────────────────────────────────────────────
-    // Signal to onPause that this pause is intentional (track switch).
+    // ── TRACK SWITCHING PHASE ──────────────────────────────────────────────
+    // Signal to onPause that this switch is intentional.
     isSwitchingRef.current = true
     currentVideoIdRef.current = null
     hasLoggedHistoryRef.current = false
-    setCurrentTime(0)
     setIsLoading(true)
 
-    async function stopPrevious() {
-      if (!audio) return
-
-      // Await the pending play() promise before pausing to avoid AbortError.
-      if (playPromiseRef.current) {
-        try {
-          await playPromiseRef.current
-        } catch {
-          // Ignore — already handled in the play() .catch()
-        }
-        playPromiseRef.current = null
-      }
-
-      try {
-        audio.pause()
-        audio.currentTime = 0
-      } catch {}
-    }
-
-    // Safety timer: if loading takes > 5s, clear loading state.
+    // Safety timer: if loading takes > 8s, clear loading state.
     const safetyTimer = setTimeout(() => {
       if (reqId === audioRequestIdRef.current) {
         setIsLoading(false)
       }
-    }, 5000)
+    }, 8000)
 
     async function loadTrack() {
       if (!currentTrack) return
 
-      await stopPrevious()
-
-      // ── RESOLVE VIDEO ID ────────────────────────────────────────────────
+      // ── RESOLVE VIDEO ID (Async while previous audio maintains background lease)
       let targetVideoId = isYouTubeVideoId(currentTrack.videoId) ? currentTrack.videoId : undefined
 
       if (!targetVideoId) {
@@ -637,18 +629,30 @@ export function AudioEngine() {
         return
       }
 
-      // ── LOAD PHASE ──────────────────────────────────────────────────────
+      // ── SEAMLESS LOAD & PLAY PHASE ──────────────────────────────────────
       if (audio) {
+        // Await any pending play promise before updating src
+        if (playPromiseRef.current) {
+          try {
+            await playPromiseRef.current
+          } catch {
+            // Handled
+          }
+          playPromiseRef.current = null
+        }
+
+        if (reqId !== audioRequestIdRef.current) return
+
         const streamUrl = `/api/stream/${targetVideoId}`
         logAudio('source assigned:', streamUrl)
 
-        // Set the source — currentVideoIdRef is set HERE so the play/pause
-        // sync effect (#7) knows the audio element is ready for this track.
+        // Set the source — currentVideoIdRef is set HERE
         audio.src = streamUrl
+        audio.currentTime = 0
+        setCurrentTime(0)
         currentVideoIdRef.current = targetVideoId
 
-        // Clear switching flag AFTER src is set so that any load-induced
-        // events (emptied, etc.) don't falsely update store state.
+        // Clear switching flag AFTER src is set
         isSwitchingRef.current = false
 
         logAudio('play requested:', {
