@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useAuthStore } from '@/store/authStore'
-import { createBrowserClient } from '@supabase/ssr'
+import { createClient } from '@/lib/supabase/client'
 import { Send, Download } from 'lucide-react'
 interface Message {
   id: string
@@ -45,10 +45,7 @@ export function ChatRoomPage({ roomId }: ChatRoomPageProps) {
   // Supabase realtime subscription
   useEffect(() => {
     if (!user) return
-    const supabase = createBrowserClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    )
+    const supabase = createClient()
     const channel = supabase
       .channel(`chat:${roomId}`)
       .on(

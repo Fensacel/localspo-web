@@ -39,13 +39,25 @@ export function TopBar() {
   const initial = (name.charAt(0) || 'U').toUpperCase()
 
   async function handleLogin() {
-    const supabase = createClient()
-    await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: `${window.location.origin}/api/auth/callback`,
-      },
-    })
+    try {
+      const supabase = createClient()
+      const currentPath = window.location.pathname + window.location.search
+      const nextParam = currentPath.startsWith('/auth') ? '/' : currentPath
+      const redirectUrl = `${window.location.origin}/api/auth/callback?next=${encodeURIComponent(nextParam)}`
+
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: redirectUrl,
+        },
+      })
+
+      if (error) {
+        console.error('[TopBar] signInWithOAuth error:', error.message)
+      }
+    } catch (err: unknown) {
+      console.error('[TopBar] Login failed:', err)
+    }
   }
 
   async function handleLogout() {
