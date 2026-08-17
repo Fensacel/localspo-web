@@ -549,6 +549,21 @@ export function AudioEngine() {
     hasLoggedHistoryRef.current = false
     setIsLoading(true)
 
+    // Immediately stop old audio so the skipped song does NOT continue playing
+    if (audio) {
+      try {
+        audio.pause()
+        audio.currentTime = 0
+      } catch {}
+    }
+    if (ytPlayerRef.current && typeof ytPlayerRef.current.pauseVideo === 'function') {
+      try {
+        ytPlayerRef.current.pauseVideo()
+      } catch {}
+    }
+
+    const abortController = new AbortController()
+
     // Safety timer: if loading takes > 8s, clear loading state.
     const safetyTimer = setTimeout(() => {
       if (reqId === audioRequestIdRef.current) {
@@ -559,7 +574,7 @@ export function AudioEngine() {
     async function loadTrack() {
       if (!currentTrack) return
 
-      // ── RESOLVE VIDEO ID (Async while previous audio maintains background lease)
+      // ── RESOLVE VIDEO ID ────────────────────────────────────────────────
       let targetVideoId = isYouTubeVideoId(currentTrack.videoId) ? currentTrack.videoId : undefined
 
       if (!targetVideoId) {
@@ -575,7 +590,9 @@ export function AudioEngine() {
                 ? currentTrack.artist
                 : currentTrack.artist?.name || ''
             const query = `${currentTrack.title} ${artistName}`
-            const searchRes = await fetch(`/api/search?q=${encodeURIComponent(query)}&type=songs`)
+            const searchRes = await fetch(`/api/search?q=${encodeURIComponent(query)}&type=songs`, {
+              signal: abortController.signal,
+            })
 
             // Discard if a newer request came in
             if (reqId !== audioRequestIdRef.current) {
@@ -604,7 +621,9 @@ export function AudioEngine() {
               useLibraryStore.getState().updateResolvedVideoId(currentTrack.id, bestVideoId)
             }
           } catch (err) {
-            console.error('[AudioEngine] Resolution error:', err)
+            if ((err as Error)?.name !== 'AbortError') {
+              console.error('[AudioEngine] Resolution error:', err)
+            }
           }
         }
       }
@@ -629,7 +648,7 @@ export function AudioEngine() {
         return
       }
 
-      // ── SEAMLESS LOAD & PLAY PHASE ──────────────────────────────────────
+      // ── LOAD & PLAY NEW TRACK ──────────────────────────────────────────
       if (audio) {
         // Await any pending play promise before updating src
         if (playPromiseRef.current) {
@@ -728,6 +747,7 @@ export function AudioEngine() {
 
     return () => {
       clearTimeout(safetyTimer)
+      abortController.abort()
     }
   // Depend only on track ID — not the whole track object.
   // This ensures switching A→B→A correctly re-triggers (reqId handles it).
