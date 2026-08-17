@@ -1,6 +1,7 @@
 export interface LyricLine {
   time: number
   text: string
+  romanizedText?: string
 }
 
 export interface Lyrics {

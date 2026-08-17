@@ -1,4 +1,5 @@
 import type { LyricLine } from '@/types/lyrics'
+import { romanizeText } from '@/lib/lyrics/romanizer'
 
 const TIMESTAMP_RE = /\[(\d{2}):(\d{2})\.?(\d{0,3})\]/g
 
@@ -50,8 +51,13 @@ export function parseLRC(lrc: string): LyricLine[] {
       continue
     }
 
+    const romanizedText = romanizeText(text)
     for (const time of timestamps) {
-      lines.push({ time, text })
+      lines.push({
+        time,
+        text,
+        romanizedText: romanizedText !== text ? romanizedText : undefined,
+      })
     }
   }
 

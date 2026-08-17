@@ -108,12 +108,15 @@ function scoreLrclibItem(
     }
   }
 
-  // 4. Romanized vs Native Language Script
+  // 4. Prefer Native Script (Japanese/Kanji/Kana/Hangul/Chinese) over Pure Romaji uploads
   if (isRomanizedText(trackName) || isRomanizedText(albumName)) {
-    score -= 100
+    score -= 300
   }
   if (hasNativeScript(lyricsText)) {
-    score += 60
+    score += 400 // Massive bonus for original Kanji/Kana/Hangul script
+  } else {
+    // If lyrics text is purely Latin/ASCII (Romaji), penalize heavily so native script wins
+    score -= 300
   }
 
   return score
@@ -147,11 +150,18 @@ export async function fetchLyrics(params: {
         })
         if (res.ok) {
           const data: LrclibResponse = await res.json()
+          const lyricsText = (data?.syncedLyrics || '') + '\n' + (data?.plainLyrics || '')
           if (data?.syncedLyrics) {
             const normalized = normalizeLrclibResponse(data)
-            if (normalized?.synced) return normalized
+            // Only return directly if it has native script or isn't a pure Romaji track
+            if (normalized?.synced && (hasNativeScript(lyricsText) || !isRomanizedText(data.trackName))) {
+              return normalized
+            }
+            if (normalized?.synced && !plainFallback) {
+              plainFallback = normalized
+            }
           } else if (data?.plainLyrics) {
-            plainFallback = normalizeLrclibResponse(data)
+            if (!plainFallback) plainFallback = normalizeLrclibResponse(data)
           }
         }
       } catch (err) {
