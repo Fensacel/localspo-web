@@ -103,7 +103,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           className={`flex-1 overflow-y-auto relative ${
             pathname === '/now-playing'
               ? 'p-0 pb-0'
-              : 'pb-[140px] md:pb-[108px] px-3 sm:px-6'
+              : 'pb-[156px] md:pb-[108px] px-3 sm:px-6'
           }`}
         >
           {lyricsOpen ? (
@@ -124,7 +124,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* Floating Capsule Bottom Player (hidden on full now-playing screen) */}
       {pathname !== '/now-playing' && (
         <div className="md:contents">
-          <div className="fixed bottom-[58px] md:bottom-0 left-0 right-0 z-40">
+          <div className="fixed bottom-[64px] md:bottom-0 left-0 right-0 z-40 pb-safe">
             <BottomPlayer />
           </div>
         </div>

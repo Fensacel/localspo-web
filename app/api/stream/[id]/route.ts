@@ -69,7 +69,7 @@ export async function GET(
       responseHeaders.set('Content-Type', contentType)
       responseHeaders.set('Accept-Ranges', 'bytes')
       responseHeaders.set('Access-Control-Allow-Origin', '*')
-      responseHeaders.set('Cache-Control', 'public, max-age=3600')
+      responseHeaders.set('Cache-Control', 'no-cache, no-store, must-revalidate')
 
       const contentLength = upstream.headers.get('content-length')
       const contentRange = upstream.headers.get('content-range')

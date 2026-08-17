@@ -147,10 +147,9 @@ export const usePlayerStore = create<PlayerStore>()(
             const updatedQueue = [...currentQ, ...newRecommendations]
             const updatedOrig = [...currentOrig, ...newRecommendations]
 
-            const { isPlaying, currentIndex } = get()
-            const wasAtEnd = currentIndex >= currentQ.length - 1
-
-            if (!isPlaying || wasAtEnd) {
+            const { isPlaying, currentIndex, currentTrack: activeTrack } = get()
+            // Only auto-advance track if player was stopped or had no active track
+            if (!isPlaying && !activeTrack) {
               const nextIndex = Math.max(0, currentQ.length)
               const nextTrack = updatedQueue[nextIndex]
               if (nextTrack?.artist?.name) {
@@ -159,7 +158,7 @@ export const usePlayerStore = create<PlayerStore>()(
               set({
                 queue: updatedQueue,
                 originalQueue: updatedOrig,
-                currentTrack: nextTrack || get().currentTrack,
+                currentTrack: nextTrack || activeTrack,
                 currentIndex: nextIndex,
                 isPlaying: true,
                 currentTime: 0,

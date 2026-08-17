@@ -379,12 +379,10 @@ export function AudioEngine() {
     }
 
     function onPause() {
-      // KEY FIX: If we are in the middle of a track switch (isSwitchingRef=true),
-      // or if an audio error occurred and we are falling back to YouTube IFrame player,
-      // this pause was triggered by HTML5 audio failure, NOT the user.
-      // Do NOT update the store to false!
-      if (isSwitchingRef.current || audio.error) {
-        logAudio('pause during track switch or audio error — ignoring store update')
+      // If we are in the middle of a track switch, audio error, or page is hidden (mobile screen lock / background transition),
+      // do NOT update the store to false, allowing background audio / mediaSession controls to keep working or resume smoothly.
+      if (isSwitchingRef.current || audio.error || document.hidden) {
+        logAudio('pause during track switch, audio error, or document hidden — ignoring store update')
         return
       }
       logBG('audio paused')
