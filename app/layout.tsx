@@ -51,6 +51,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="apple-mobile-web-app-title" content="LocalSpo" />
         <meta name="mobile-web-app-capable" content="yes" />
+        <script
+          async
+          src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1407356930815774"
+          crossOrigin="anonymous"
+        />
       </head>
       <body className={`${inter.className} bg-black text-white antialiased`} suppressHydrationWarning>
         <Providers>
