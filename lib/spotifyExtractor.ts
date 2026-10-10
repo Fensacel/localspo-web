@@ -93,6 +93,116 @@ async function enrichTrackCovers(songs: StreamSong[]): Promise<StreamSong[]> {
 }
 
 /**
+ * Fetches all track URIs from Spotify spclient API using anonymous token from embed page
+ */
+async function fetchFullTracklistFromSpclient(playlistId: string, accessToken: string): Promise<string[]> {
+  const res = await fetch(
+    `https://spclient.wg.spotify.com/playlist/v2/playlist/${playlistId}?limit=500`,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: 'application/json',
+      },
+      cache: 'no-store',
+    }
+  )
+
+  if (!res.ok) {
+    throw new Error(`SPCLIENT_FETCH_FAILED_${res.status}`)
+  }
+
+  const json = await res.json()
+  const items: any[] = json?.contents?.items || []
+  return items.map((item) => item.uri).filter(Boolean)
+}
+
+/**
+ * Decorates track URIs into detailed metadata via Spotify partner pathfinder API in batches
+ */
+async function fetchTracksMetadataFromPartner(uris: string[], accessToken: string): Promise<any[]> {
+  const chunkSize = 100
+  const allEntities: any[] = []
+
+  for (let i = 0; i < uris.length; i += chunkSize) {
+    const chunk = uris.slice(i, i + chunkSize)
+    try {
+      const res = await fetch('https://api-partner.spotify.com/pathfinder/v1/query', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          variables: { uris: chunk },
+          extensions: {
+            persistedQuery: {
+              version: 1,
+              sha256Hash: 'f952da037440f694cc6925b9e3f649d39077a744c4db7dfba01cb883723f4f77',
+            },
+          },
+        }),
+        cache: 'no-store',
+      })
+
+      if (res.ok) {
+        const json = await res.json()
+        const entities = json?.data?.lookupEntities || []
+        allEntities.push(...entities)
+      }
+    } catch (e) {
+      console.warn('[spotifyExtractor] partner query chunk failed:', e)
+    }
+  }
+
+  return allEntities
+}
+
+/**
+ * Maps pathfinder GraphQL lookup entity to StreamSong format
+ */
+function mapPartnerEntityToStreamSong(entity: any, index: number, defaultCoverUrl: string): StreamSong {
+  const track = entity?.typedEntity?.data || {}
+  const uri = entity?.uri || track?.uri || ''
+  let id = track.id || ''
+  if (!id && uri.includes(':track:')) {
+    id = uri.split(':track:')[1]
+  } else if (!id && uri) {
+    const parts = uri.split(':')
+    id = parts[parts.length - 1]
+  }
+  if (!id) {
+    id = `sp-${index}-${Date.now()}`
+  }
+
+  const title = track.name || entity?.identityTrait?.name || 'Unknown Track'
+  
+  const artistItems = track.artists?.items || []
+  let artist = 'Unknown Artist'
+  if (artistItems.length > 0) {
+    artist = artistItems.map((a: any) => a?.profile?.name).filter(Boolean).join(', ')
+  }
+
+  const album = track.albumOfTrack?.name || undefined
+  const durationMs = Number(
+    track.duration?.totalMilliseconds ||
+      (entity?.consumptionExperienceTrait?.duration?.seconds ? entity.consumptionExperienceTrait.duration.seconds * 1000 : 0)
+  )
+
+  const coverSources = track.albumOfTrack?.coverArt?.sources || []
+  const coverUrl = coverSources[0]?.url || defaultCoverUrl || ''
+
+  return {
+    id,
+    title,
+    artist,
+    album,
+    durationMs,
+    coverUrl,
+    source: 'spotify-import',
+  }
+}
+
+/**
  * Primary extractor: Scrapes metadata directly from Spotify embed HTML (__NEXT_DATA__)
  */
 export async function extractSpotifyPlaylist(playlistId: string): Promise<ExtractedPlaylist> {
@@ -138,8 +248,28 @@ export async function extractSpotifyPlaylist(playlistId: string): Promise<Extrac
     entity?.images?.[0]?.url ||
     ''
 
-  const initialSongs = trackList.map((track, i) => mapToStreamSong(track, i, coverUrl))
-  const songs = await enrichTrackCovers(initialSongs)
+  const accessToken: string | undefined = data?.props?.pageProps?.state?.settings?.session?.accessToken
+
+  let songs: StreamSong[] = []
+
+  if (accessToken) {
+    try {
+      const fullUris = await fetchFullTracklistFromSpclient(playlistId, accessToken)
+      if (fullUris.length > 0) {
+        const entities = await fetchTracksMetadataFromPartner(fullUris, accessToken)
+        if (entities.length > 0) {
+          songs = entities.map((entity, i) => mapPartnerEntityToStreamSong(entity, i, coverUrl))
+        }
+      }
+    } catch (spClientErr) {
+      console.warn('[spotifyExtractor] full tracklist fetch failed, using embed tracks:', spClientErr)
+    }
+  }
+
+  if (songs.length === 0) {
+    const initialSongs = trackList.map((track, i) => mapToStreamSong(track, i, coverUrl))
+    songs = await enrichTrackCovers(initialSongs)
+  }
 
   return {
     playlist: {
@@ -192,8 +322,28 @@ export async function extractFromRegularPage(playlistId: string): Promise<Extrac
     entity?.visualIdentity?.image?.[0]?.url ||
     ''
 
-  const initialSongs = trackList.map((track, i) => mapToStreamSong(track, i, coverUrl))
-  const songs = await enrichTrackCovers(initialSongs)
+  const accessToken: string | undefined = data?.props?.pageProps?.state?.settings?.session?.accessToken
+
+  let songs: StreamSong[] = []
+
+  if (accessToken) {
+    try {
+      const fullUris = await fetchFullTracklistFromSpclient(playlistId, accessToken)
+      if (fullUris.length > 0) {
+        const entities = await fetchTracksMetadataFromPartner(fullUris, accessToken)
+        if (entities.length > 0) {
+          songs = entities.map((entity, i) => mapPartnerEntityToStreamSong(entity, i, coverUrl))
+        }
+      }
+    } catch (spClientErr) {
+      console.warn('[spotifyExtractor] fallback full tracklist fetch failed:', spClientErr)
+    }
+  }
+
+  if (songs.length === 0) {
+    const initialSongs = trackList.map((track, i) => mapToStreamSong(track, i, coverUrl))
+    songs = await enrichTrackCovers(initialSongs)
+  }
 
   if (songs.length === 0) {
     throw new Error('FALLBACK_NO_TRACKS')
