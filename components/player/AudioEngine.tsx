@@ -7,6 +7,7 @@ import { pickBestMatch } from '@/lib/playSong'
 import { createClient } from '@/lib/supabase/client'
 import type { Track } from '@/types/track'
 import { preloadAudioStream, preloadSingleSong, isYouTubeVideoId } from '@/lib/queuePreloader'
+import { startNativeBackgroundPlayback, stopNativeBackgroundPlayback } from '@/lib/nativeBackgroundPlayback'
 
 declare global {
   interface Window {
@@ -99,6 +100,13 @@ export function AudioEngine() {
         logBG('page hidden')
       } else {
         logBG('page visible')
+        // Returning to the app: if the store still says playing but the browser paused the element, resume it
+        const audio = audioRef.current
+        const { isPlaying: storePlaying, currentTrack: track } = usePlayerStore.getState()
+        if (audio && track && storePlaying && audio.paused && audio.src && !audio.error) {
+          logBG('resuming after background pause')
+          audio.play().catch(() => {})
+        }
       }
     }
     document.addEventListener('visibilitychange', onVisibility)
@@ -130,10 +138,11 @@ export function AudioEngine() {
       navigator.mediaSession.setActionHandler('pause', () => {
         logBG('media session pause')
         logMediaSession('action: pause')
+        // Update store first so onPause knows this is a user pause, not a browser pause
+        usePlayerStore.getState().pause()
         if (audioRef.current && !audioRef.current.paused) {
           audioRef.current.pause()
         }
-        usePlayerStore.getState().pause()
       })
       navigator.mediaSession.setActionHandler('previoustrack', () => {
         logBG('media session previous')
@@ -175,10 +184,10 @@ export function AudioEngine() {
       navigator.mediaSession.setActionHandler('stop', () => {
         logBG('media session stop')
         logMediaSession('action: stop')
+        usePlayerStore.getState().pause()
         if (audioRef.current) {
           audioRef.current.pause()
         }
-        usePlayerStore.getState().pause()
       })
     } catch (e) {
       logMediaSession('MediaSession action handler error:', e)
@@ -380,6 +389,14 @@ export function AudioEngine() {
       logAudio('playing confirmed')
       setIsPlaying(true)
       setIsLoading(false)
+      const playingTrack = usePlayerStore.getState().currentTrack
+      if (playingTrack) {
+        const playingArtist =
+          typeof playingTrack.artist === 'string'
+            ? playingTrack.artist
+            : playingTrack.artist?.name || ''
+        startNativeBackgroundPlayback(playingTrack.title || 'LocalSpo', playingArtist)
+      }
       if ('mediaSession' in navigator) {
         try { navigator.mediaSession.playbackState = 'playing' } catch {}
       }
@@ -404,9 +421,17 @@ export function AudioEngine() {
         logAudio('pause during track switch or audio error — ignoring store update')
         return
       }
+      // User pause sets store isPlaying=false BEFORE this event fires.
+      // If store still says playing while page is hidden, the browser/OS paused us: keep state and try to resume.
+      if (document.hidden && usePlayerStore.getState().isPlaying) {
+        logBG('browser paused audio in background — keeping playing state, retrying play()')
+        audio.play().catch(() => {})
+        return
+      }
       logBG('audio paused')
       logAudio('paused (user/browser initiated)')
       setIsPlaying(false)
+      stopNativeBackgroundPlayback()
       if ('mediaSession' in navigator) {
         try { navigator.mediaSession.playbackState = 'paused' } catch {}
       }
